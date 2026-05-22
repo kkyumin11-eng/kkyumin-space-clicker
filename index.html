@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Stardust Clicker</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="achievement-toast" class="achievement-toast" aria-live="polite"></div>
+  <button
+    id="achievements-toggle"
+    class="corner-toggle corner-toggle-bottom-right"
+    type="button"
+    aria-label="우주 업적 열기"
+    aria-controls="achievement-panel"
+    aria-expanded="false"
+  >
+    <span class="corner-icon">🏅</span>
+    <span class="corner-label">배지</span>
+  </button>
+  <button
+    id="audio-toggle"
+    class="corner-toggle audio-toggle"
+    type="button"
+    aria-label="오디오 끄기"
+    aria-pressed="false"
+  >
+    <span class="corner-icon">🔊</span>
+    <span class="corner-label">음향</span>
+  </button>
+  <div id="levelup-overlay" class="levelup-overlay" aria-live="polite">
+    <div class="levelup-modal">
+      <h2>LEVEL UP</h2>
+      <p>카드 1장을 선택해 우주 개척 도감에 영구 누적하세요</p>
+      <div id="levelup-cards" class="levelup-cards"></div>
+      <div id="levelup-preview" class="levelup-preview">카드를 선택하면 예상 스탯 변화가 표시됩니다.</div>
+    </div>
+  </div>
+  <div id="reset-confirm-overlay" class="confirm-overlay" aria-hidden="true">
+    <div
+      class="confirm-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="reset-confirm-title"
+      aria-describedby="reset-confirm-description"
+    >
+      <h2 id="reset-confirm-title">진행상황 초기화</h2>
+      <p id="reset-confirm-description">진행상황을 초기화 하시겠습니까?</p>
+      <div class="confirm-actions">
+        <button id="reset-confirm-cancel" class="confirm-button cancel" type="button">취소</button>
+        <button id="reset-confirm-accept" class="confirm-button accept" type="button">확인</button>
+      </div>
+    </div>
+  </div>
+  <main class="app">
+    <header class="hud">
+      <button
+        id="dm-lab-toggle"
+        class="corner-toggle hud-dm-toggle"
+        type="button"
+        aria-label="암흑 물질 연구소 열기"
+        aria-controls="dark-matter-lab"
+        aria-expanded="false"
+      >
+        <span class="corner-icon">⬛</span>
+        <span class="corner-label">환생상점</span>
+      </button>
+      <h1>Stardust Clicker</h1>
+      <div class="level-panel">
+        <p class="level-text">레벨: <strong id="level-value">1</strong></p>
+        <div class="xp-bar" role="progressbar" aria-label="경험치 바">
+          <div id="xp-fill" class="xp-fill"></div>
+        </div>
+        <p class="xp-text"><span id="xp-current">0</span> / <span id="xp-required">100</span> XP</p>
+      </div>
+      <p class="resource">
+        Stardust:
+        <strong id="stardust-count">0</strong>
+      </p>
+      <p class="resource dark-resource">
+        Dark Matter:
+        <strong id="dark-matter-count">0</strong>
+      </p>
+      <p class="rate">초당 생산량: <span id="per-second">0</span></p>
+      <p class="rate">클릭 효율: <span id="click-power">1</span></p>
+      <p class="event-rate" id="fever-status">피버 타임 비활성</p>
+      <button id="rebirth-button" class="rebirth-button" disabled>
+        블랙홀 개방 (환생)
+      </button>
+      <button
+        id="codex-toggle"
+        class="corner-toggle hud-codex-toggle"
+        type="button"
+        aria-label="도감 열기"
+        aria-controls="codex-panel"
+        aria-expanded="false"
+      >
+        <span class="corner-icon">📘</span>
+        <span class="corner-label">도감</span>
+      </button>
+      <button
+        id="inventory-toggle"
+        class="corner-toggle hud-inventory-toggle"
+        type="button"
+        aria-label="우주 개척 도감 열기"
+        aria-controls="inventory-panel"
+        aria-expanded="false"
+      >
+        <span class="corner-icon">🗂️</span>
+        <span class="corner-label">개척 도감</span>
+      </button>
+      <button
+        id="stats-toggle"
+        class="corner-toggle hud-stats-toggle"
+        type="button"
+        aria-label="스탯 열기"
+        aria-controls="stat-panel"
+        aria-expanded="false"
+      >
+        <span class="corner-icon">📊</span>
+        <span class="corner-label">스탯</span>
+      </button>
+      <p class="rebirth-hint">조건: Stardust 100,000 이상</p>
+    </header>
+
+    <section id="stat-panel" class="shop stat-window floating-panel">
+      <h2>현재 전투 스탯</h2>
+      <div class="stat-grid">
+        <p>크리티컬 확률: <strong id="stat-critical-chance">5%</strong></p>
+        <p>크리티컬 배율: <strong id="stat-critical-multiplier">x2</strong></p>
+        <p>황금 운석 확률: <strong id="stat-meteor-chance">0%</strong></p>
+        <p>피버 지속 시간: <strong id="stat-fever-duration">10초</strong></p>
+        <p>초당 생산량 배수: <strong id="stat-per-second-multiplier">x1</strong></p>
+        <p>클릭 효율 배수: <strong id="stat-click-multiplier">x1</strong></p>
+        <p>카드 클릭 고정 보너스: <strong id="stat-card-click-flat">+0</strong></p>
+        <p>카드 자동 생산 배율: <strong id="stat-card-auto-multiplier">x1</strong></p>
+        <p>클릭 XP 획득량: <strong id="stat-xp-gain">2</strong></p>
+        <p>클릭 XP 배율: <strong id="stat-xp-multiplier">x1</strong></p>
+      </div>
+    </section>
+
+    <section id="codex-panel" class="shop codex-panel floating-panel">
+      <h2>레벨업 카드 도감</h2>
+      <div id="codex-list" class="codex-list"></div>
+    </section>
+
+    <section id="inventory-panel" class="shop inventory-panel floating-panel">
+      <h2>우주 개척 도감</h2>
+      <div id="inventory-summary" class="inventory-summary"></div>
+      <h3>보유 카드 상세</h3>
+      <div id="inventory-grid" class="inventory-grid"></div>
+    </section>
+
+    <section class="planet-section">
+      <button id="planet-button" class="planet-button" aria-label="행성 클릭">
+        <span id="satellite-layer" class="satellite-layer" aria-hidden="true"></span>
+        <span class="planet-image" aria-hidden="true"></span>
+      </button>
+    </section>
+
+    <section class="shop">
+      <h2>Shop</h2>
+      <div class="shop-list">
+        <article class="shop-item">
+          <div>
+            <h3 id="auto-miner-title">자동 채굴기 | +0</h3>
+            <p>초당 +1 Stardust</p>
+            <p class="cost">가격: <span id="auto-miner-cost">50</span></p>
+          </div>
+          <button id="buy-auto-miner" class="buy-button">구매</button>
+        </article>
+
+        <article class="shop-item">
+          <div>
+            <h3 id="quantum-probe-title">양자 탐사선 | +0</h3>
+            <p>초당 +10 Stardust</p>
+            <p class="cost">가격: <span id="quantum-probe-cost">500</span></p>
+          </div>
+          <button id="buy-quantum-probe" class="buy-button">구매</button>
+        </article>
+
+        <article class="shop-item">
+          <div>
+            <h3 id="milky-drive-title">은하수 드라이브 | +0</h3>
+            <p>클릭당 효율 +2</p>
+            <p class="cost">가격: <span id="milky-drive-cost">200</span></p>
+          </div>
+          <button id="buy-milky-drive" class="buy-button">구매</button>
+        </article>
+
+        <article class="shop-item">
+          <div>
+            <h3>안테나 주파수 동기화</h3>
+            <p>기본 크리티컬 확률 +1% (최대 50%)</p>
+            <p class="cost">가격: <span id="critical-chance-shop-cost">2,000</span> | 보유: <span id="critical-chance-shop-level">0</span></p>
+          </div>
+          <button id="buy-critical-chance-shop" class="buy-button">강화</button>
+        </article>
+
+        <article class="shop-item">
+          <div>
+            <h3>초고밀도 레이저 포인터</h3>
+            <p>기본 크리티컬 배수 +10% (최대 2000%)</p>
+            <p class="cost">가격: <span id="critical-multiplier-shop-cost">3,000</span> | 보유: <span id="critical-multiplier-shop-level">0</span></p>
+          </div>
+          <button id="buy-critical-multiplier-shop" class="buy-button">강화</button>
+        </article>
+      </div>
+    </section>
+
+    <section id="dark-matter-lab" class="shop dm-shop floating-panel">
+      <h2>암흑 물질 연구소 (Dark Matter Shop)</h2>
+      <div class="shop-list">
+        <article class="shop-item">
+          <div>
+            <h3>시공간 왜곡</h3>
+            <p>영구적으로 클릭/초당 획득량 +50%</p>
+            <p class="cost">
+              가격: <span id="distortion-cost">1</span> DM | 보유: <span id="distortion-level">0</span>
+            </p>
+          </div>
+          <button id="buy-distortion" class="buy-button">연구</button>
+        </article>
+
+        <article class="shop-item">
+          <div>
+            <h3>특이점 압축</h3>
+            <p>환생 시 획득 Dark Matter +50%</p>
+            <p class="cost">
+              가격: <span id="singularity-cost">3</span> DM | 보유: <span id="singularity-level">0</span>
+            </p>
+          </div>
+          <button id="buy-singularity" class="buy-button">연구</button>
+        </article>
+      </div>
+    </section>
+
+    <section id="achievement-panel" class="shop achievement-shop floating-panel">
+      <h2>우주 업적 (Achievements)</h2>
+      <div class="achievement-list">
+        <article id="achievement-cosmic-pioneer" class="achievement-item">
+          <h3>우주 개척자</h3>
+          <p>클릭 100회 달성</p>
+        </article>
+        <article id="achievement-stardust-tycoon" class="achievement-item">
+          <h3>스타더스트 재벌</h3>
+          <p>Stardust 1,000,000개 보유</p>
+        </article>
+        <article id="achievement-satellite-collector" class="achievement-item">
+          <h3>위성 컬렉터</h3>
+          <p>자동 채굴기 10개 이상 구매</p>
+        </article>
+        <article id="achievement-lucky-astronomer" class="achievement-item">
+          <h3>행운의 천문학자</h3>
+          <p>황금 운석 5번 클릭</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="reset-section">
+      <button id="reset-progress-button" class="reset-progress-button" type="button">
+        진행상황 전체 초기화
+      </button>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
