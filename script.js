@@ -1,6 +1,7 @@
 const SAVE_KEY = "stardust-clicker-save-v2";
 const FEVER_MULTIPLIER = 2;
 const BASE_FEVER_DURATION_MS = 10000;
+const FEVER_TRIGGER_CLICKS = 100;
 const METEOR_BASE_COOLDOWN_MS = 45000;
 const METEOR_MIN_COOLDOWN_MS = 10000;
 const METEOR_SPAWN_CHANCE_AFTER_COOLDOWN = 0.05;
@@ -25,9 +26,18 @@ const RARITIES = [
   { key: "common", label: "일반", chance: 0.6 },
   { key: "rare", label: "희귀", chance: 0.25 },
   { key: "epic", label: "영웅", chance: 0.1 },
-  { key: "legendary", label: "전설", chance: 0.05 }
+  { key: "legendary", label: "전설", chance: 0.045 },
+  { key: "mythic", label: "신화", chance: 0.005 }
 ];
-const RARITY_ORDER = ["common", "rare", "epic", "legendary"];
+const RARITY_ORDER = ["common", "rare", "epic", "legendary", "mythic"];
+const EMBEDDED_EVOLUTION_CHANCE = 0.12;
+const PRESERVATION_SLOT_LIMIT = 5;
+const MERGE_REQUIREMENTS = {
+  common: 2,
+  rare: 2,
+  epic: 3,
+  legendary: 3
+};
 
 const CARD_LIBRARY = [
   {
@@ -37,8 +47,9 @@ const CARD_LIBRARY = [
     values: {
       common: { type: "flat", value: 15 },
       rare: { type: "flat", value: 50 },
-      epic: { type: "percent", value: 40 },
-      legendary: { type: "percent", value: 100 }
+      epic: { type: "percent", value: 35 },
+      legendary: { type: "percent", value: 80 },
+      mythic: { type: "percent", value: 140 }
     },
     describe: (value) =>
       value.type === "flat"
@@ -49,28 +60,28 @@ const CARD_LIBRARY = [
     id: "spaceAcceleration",
     name: "우주 가속도",
     kind: "passive",
-    values: { common: 10, rare: 25, epic: 40, legendary: 100 },
+    values: { common: 10, rare: 25, epic: 35, legendary: 80, mythic: 140 },
     describe: (value) => `모든 자동 생산 효율 +${value}%`
   },
   {
-    id: "meteorMagnet",
-    name: "운석 자석",
+    id: "feverChargeReducer",
+    name: "피버 타임 쿨타임 감소",
     kind: "passive",
-    values: { common: 3, rare: 6, epic: 12, legendary: 25 },
-    describe: (value) => `운석 기본 쿨타임 -${value}초`
+    values: { common: 10, rare: 20, epic: 35, legendary: 60, mythic: 99 },
+    describe: (value) => `피버 발동까지 필요한 클릭 수 -${value}회`
   },
   {
     id: "starBreak",
     name: "스타 브레이크",
     kind: "burst",
-    values: { common: 100, rare: 300, epic: 1000, legendary: 5000 },
+    values: { common: 100, rare: 300, epic: 1000, legendary: 5000, mythic: 13000 },
     describe: (value) => `즉시 현재 초당 획득량의 ${value}초 분량 획득`
   },
   {
     id: "xpAmplify",
     name: "경험치 증폭",
     kind: "passive",
-    values: { common: 20, rare: 50, epic: 100, legendary: 300 },
+    values: { common: 20, rare: 50, epic: 90, legendary: 150, mythic: 230 },
     describe: (value) => `클릭 시 XP 획득량 +${value}%`
   },
   {
@@ -78,10 +89,11 @@ const CARD_LIBRARY = [
     name: "치명적 타격",
     kind: "passive",
     values: {
-      common: { chance: 2, multiplier: 0.5 },
-      rare: { chance: 4, multiplier: 1 },
-      epic: { chance: 7, multiplier: 2 },
-      legendary: { chance: 12, multiplier: 5 }
+      common: { chance: 1.5, multiplier: 0.4 },
+      rare: { chance: 3, multiplier: 0.8 },
+      epic: { chance: 5, multiplier: 1.5 },
+      legendary: { chance: 8, multiplier: 3 },
+      mythic: { chance: 12, multiplier: 6 }
     },
     describe: (value) => `크리티컬 확률 +${value.chance}%, 배율 +${value.multiplier}x`
   },
@@ -89,22 +101,15 @@ const CARD_LIBRARY = [
     id: "feverExtend",
     name: "피버 연장",
     kind: "passive",
-    values: { common: 5, rare: 12, epic: 25, legendary: 60 },
-    describe: (value) => `황금 운석 피버 타임 +${value}초`
+    values: { common: 20, rare: 40, epic: 70, legendary: 120, mythic: 200 },
+    describe: (value) => `피버 지속 시간 +${value}%`
   },
   {
     id: "meteorEffectBoost",
-    name: "운석 효과 증가",
+    name: "피버 공명 증폭",
     kind: "passive",
-    values: { common: 50, rare: 75, epic: 125, legendary: 200 },
+    values: { common: 35, rare: 55, epic: 80, legendary: 120, mythic: 180 },
     describe: (value) => `피버 타임 배율 +${value}%`
-  },
-  {
-    id: "growthLight",
-    name: "성장의 빛 (진화)",
-    kind: "evolution",
-    values: { common: true, rare: true, epic: true, legendary: true },
-    describe: () => "보유 카드 중 가장 낮은 등급 1장을 한 단계 진화"
   }
 ];
 const CARD_LIBRARY_BY_ID = Object.fromEntries(CARD_LIBRARY.map((card) => [card.id, card]));
@@ -126,6 +131,7 @@ function createInitialState() {
       multiplier: { price: 3000, level: 0 }
     },
     feverUntil: 0,
+    clicksTowardFever: 0,
     meteorVisible: false,
     meteorCooldownUntil: 0,
     darkMatterShop: {
@@ -134,6 +140,7 @@ function createInitialState() {
     },
     cardBuffs: createEmptyCardBuffs(),
     cardInventory: [],
+    preservedCardUids: [],
     nextCardUid: 1,
     stats: {
       totalClicks: 0,
@@ -152,13 +159,13 @@ function createInitialState() {
 function createEmptyCardBuffs() {
   return {
     clickFlatBonus: 0,
-    clickPercentBonus: 0,
-    autoPercentBonus: 0,
-    meteorCooldownReductionSec: 0,
-    xpBonus: 0,
+    clickPercentFactor: 1,
+    autoPercentFactor: 1,
+    feverClickReduction: 0,
+    xpFactor: 1,
     criticalChanceBonus: 0,
     criticalMultiplierBonus: 0,
-    feverDurationBonusSec: 0,
+    feverDurationPercentBonus: 0,
     feverMultiplierBonus: 0
   };
 }
@@ -197,8 +204,14 @@ const elements = {
   codexList: document.getElementById("codex-list"),
   inventoryToggle: document.getElementById("inventory-toggle"),
   inventoryPanel: document.getElementById("inventory-panel"),
+  preservationSlots: document.getElementById("preservation-slots"),
+  inventoryTabCards: document.getElementById("inventory-tab-cards"),
+  inventoryTabMerge: document.getElementById("inventory-tab-merge"),
+  inventoryCardsView: document.getElementById("inventory-cards-view"),
+  inventoryMergeView: document.getElementById("inventory-merge-view"),
   inventorySummary: document.getElementById("inventory-summary"),
   inventoryGrid: document.getElementById("inventory-grid"),
+  mergeList: document.getElementById("merge-list"),
   levelupOverlay: document.getElementById("levelup-overlay"),
   levelupCards: document.getElementById("levelup-cards"),
   levelupPreview: document.getElementById("levelup-preview"),
@@ -232,6 +245,8 @@ const elements = {
   achievementPanel: document.getElementById("achievement-panel"),
   darkMatterLab: document.getElementById("dark-matter-lab"),
   achievementToast: document.getElementById("achievement-toast"),
+  fxOverlay: document.getElementById("fx-overlay"),
+  impactToast: document.getElementById("impact-toast"),
   achievementNodes: {
     cosmicPioneer: document.getElementById("achievement-cosmic-pioneer"),
     stardustTycoon: document.getElementById("achievement-stardust-tycoon"),
@@ -244,11 +259,16 @@ let achievementToastTimeoutId;
 let resetConfirmResolver = null;
 let levelupCardUnlockAt = 0;
 let wasFeverActiveLastTick = false;
+let activeInventoryTab = "cards";
+let mergeInProgress = false;
 const audioState = {
   context: null,
   masterGain: null,
   sfxGain: null,
   bgmGain: null,
+  sfxVoices: [],
+  sfxVoiceCursor: 0,
+  bgmStarted: false,
   schedulerId: null,
   nextNoteTime: 0,
   step: 0,
@@ -293,9 +313,9 @@ function ensureAudioContext() {
   const bgmGain = context.createGain();
   const compressor = context.createDynamicsCompressor();
 
-  masterGain.gain.value = audioState.muted ? 0 : 0.75;
+  masterGain.gain.value = audioState.muted ? 0 : 0.9;
   sfxGain.gain.value = 1;
-  bgmGain.gain.value = 0.5;
+  bgmGain.gain.value = 0.0001;
   compressor.threshold.value = -20;
   compressor.knee.value = 8;
   compressor.ratio.value = 2.5;
@@ -309,8 +329,35 @@ function ensureAudioContext() {
   audioState.masterGain = masterGain;
   audioState.sfxGain = sfxGain;
   audioState.bgmGain = bgmGain;
+  initializeSfxVoicePool(context);
   startBgmScheduler();
   return context;
+}
+
+function initializeSfxVoicePool(context) {
+  if (audioState.sfxVoices.length > 0) {
+    return;
+  }
+  const voiceCount = 14;
+  for (let i = 0; i < voiceCount; i += 1) {
+    const gainNode = context.createGain();
+    gainNode.gain.value = 0.0001;
+    gainNode.connect(audioState.sfxGain);
+    audioState.sfxVoices.push(gainNode);
+  }
+}
+
+function reserveSfxVoice() {
+  const context = ensureAudioContext();
+  if (audioState.sfxVoices.length === 0) {
+    initializeSfxVoicePool(context);
+  }
+  const voice = audioState.sfxVoices[audioState.sfxVoiceCursor % audioState.sfxVoices.length];
+  audioState.sfxVoiceCursor = (audioState.sfxVoiceCursor + 1) % audioState.sfxVoices.length;
+  const now = context.currentTime;
+  voice.gain.cancelScheduledValues(now);
+  voice.gain.setValueAtTime(0.0001, now);
+  return { context, voice, now };
 }
 
 function setMuted(muted) {
@@ -320,7 +367,7 @@ function setMuted(muted) {
   if (audioState.masterGain) {
     const now = audioState.context.currentTime;
     audioState.masterGain.gain.cancelScheduledValues(now);
-    audioState.masterGain.gain.linearRampToValueAtTime(muted ? 0 : 0.75, now + 0.06);
+    audioState.masterGain.gain.linearRampToValueAtTime(muted ? 0 : 0.9, now + 0.06);
   }
 }
 
@@ -336,6 +383,19 @@ function unlockAudioContext() {
 function activateAudioFromUserAction() {
   audioState.userActivated = true;
   unlockAudioContext();
+  startBgmWithFadeIn();
+}
+
+function startBgmWithFadeIn() {
+  const context = ensureAudioContext();
+  if (audioState.bgmStarted) {
+    return;
+  }
+  audioState.bgmStarted = true;
+  const now = context.currentTime;
+  audioState.bgmGain.gain.cancelScheduledValues(now);
+  audioState.bgmGain.gain.setValueAtTime(0.0001, now);
+  audioState.bgmGain.gain.exponentialRampToValueAtTime(0.62, now + 1.8);
 }
 
 function createPulseSound({
@@ -345,27 +405,23 @@ function createPulseSound({
   gain = 0.1,
   sweep = 1
 }) {
-  const context = ensureAudioContext();
-  const now = context.currentTime;
+  const { context, voice, now } = reserveSfxVoice();
   const oscillator = context.createOscillator();
-  const amp = context.createGain();
 
   oscillator.type = type;
   oscillator.frequency.setValueAtTime(frequency, now);
   oscillator.frequency.exponentialRampToValueAtTime(Math.max(40, frequency * sweep), now + duration);
-  amp.gain.setValueAtTime(0.0001, now);
-  amp.gain.exponentialRampToValueAtTime(gain, now + 0.01);
-  amp.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+  voice.gain.setValueAtTime(0.0001, now);
+  voice.gain.exponentialRampToValueAtTime(gain, now + 0.01);
+  voice.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
-  oscillator.connect(amp);
-  amp.connect(audioState.sfxGain);
+  oscillator.connect(voice);
   oscillator.start(now);
   oscillator.stop(now + duration + 0.02);
 }
 
 function createNoiseBurst(duration = 0.14, gain = 0.06, highpass = 600) {
-  const context = ensureAudioContext();
-  const now = context.currentTime;
+  const { context, voice, now } = reserveSfxVoice();
   const bufferSize = Math.max(1, Math.floor(context.sampleRate * duration));
   const noiseBuffer = context.createBuffer(1, bufferSize, context.sampleRate);
   const output = noiseBuffer.getChannelData(0);
@@ -378,14 +434,11 @@ function createNoiseBurst(duration = 0.14, gain = 0.06, highpass = 600) {
   const filter = context.createBiquadFilter();
   filter.type = "highpass";
   filter.frequency.setValueAtTime(highpass, now);
-
-  const amp = context.createGain();
-  amp.gain.setValueAtTime(gain, now);
-  amp.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+  voice.gain.setValueAtTime(gain, now);
+  voice.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
   source.connect(filter);
-  filter.connect(amp);
-  amp.connect(audioState.sfxGain);
+  filter.connect(voice);
   source.start(now);
   source.stop(now + duration + 0.01);
 }
@@ -442,12 +495,48 @@ function playLevelupSound() {
   createPulseSound({ frequency: 640, duration: 0.34, type: "sine", gain: 0.08, sweep: 1.05 });
 }
 
-function playCardPickSound() {
+function playCardPickSound(rarity = "common") {
   if (!audioState.userActivated) {
     return;
   }
-  createNoiseBurst(0.1, 0.05, 700);
-  createPulseSound({ frequency: 460, duration: 0.11, type: "triangle", gain: 0.08, sweep: 0.88 });
+  const highRarity = rarity === "legendary" || rarity === "mythic";
+  if (!highRarity) {
+    createPulseSound({ frequency: 420, duration: 0.11, type: "triangle", gain: 0.1, sweep: 1.03 });
+    createPulseSound({ frequency: 560, duration: 0.13, type: "sine", gain: 0.095, sweep: 1.06 });
+    createPulseSound({ frequency: 710, duration: 0.12, type: "sine", gain: 0.08, sweep: 1.08 });
+    createNoiseBurst(0.08, 0.04, 900);
+    return;
+  }
+  createNoiseBurst(0.22, 0.08, 480);
+  createPulseSound({ frequency: 180, duration: 0.45, type: "sawtooth", gain: 0.09, sweep: 1.18 });
+  createPulseSound({ frequency: 280, duration: 0.42, type: "triangle", gain: 0.1, sweep: 1.21 });
+  createPulseSound({ frequency: 520, duration: 0.38, type: "sine", gain: 0.09, sweep: 1.14 });
+}
+
+function playMergeChargeSound() {
+  if (!audioState.userActivated) {
+    return;
+  }
+  createPulseSound({ frequency: 240, duration: 0.28, type: "triangle", gain: 0.08, sweep: 0.88 });
+  createPulseSound({ frequency: 190, duration: 0.35, type: "sawtooth", gain: 0.08, sweep: 0.82 });
+}
+
+function playMergeImpactSound() {
+  if (!audioState.userActivated) {
+    return;
+  }
+  createNoiseBurst(0.26, 0.14, 220);
+  createPulseSound({ frequency: 96, duration: 0.32, type: "square", gain: 0.13, sweep: 0.74 });
+  createPulseSound({ frequency: 220, duration: 0.22, type: "triangle", gain: 0.1, sweep: 0.82 });
+  createPulseSound({ frequency: 480, duration: 0.18, type: "sine", gain: 0.085, sweep: 0.92 });
+}
+
+function playUpgradeSound() {
+  if (!audioState.userActivated) {
+    return;
+  }
+  createPulseSound({ frequency: 330, duration: 0.11, type: "triangle", gain: 0.09, sweep: 1.06 });
+  createPulseSound({ frequency: 520, duration: 0.1, type: "sine", gain: 0.075, sweep: 1.08 });
 }
 
 function scheduleBgmStep(stepTime, feverMode) {
@@ -564,11 +653,57 @@ function triggerLegendaryBurst(text) {
   burst.addEventListener("animationend", () => burst.remove());
 }
 
+function spawnCosmicSelectionBurst(rarity = "common") {
+  const highRarity = rarity === "legendary" || rarity === "mythic";
+  const particleCount = highRarity ? 52 : 28;
+  const rayCount = highRarity ? 14 : 8;
+  const colorSet = highRarity
+    ? ["#ffd4f1", "#ff89da", "#ff5ca4", "#ffe8a8"]
+    : ["#bdefff", "#8bd4ff", "#cdb7ff", "#fff0b9"];
+  const layer = elements.fxOverlay;
+  if (!layer) {
+    return;
+  }
+  for (let i = 0; i < particleCount; i += 1) {
+    const node = document.createElement("span");
+    node.className = "cosmic-particle";
+    const angle = Math.random() * Math.PI * 2;
+    const distance = (highRarity ? 280 : 180) * (0.5 + Math.random());
+    node.style.setProperty("--x", `${40 + Math.random() * 20}%`);
+    node.style.setProperty("--y", `${38 + Math.random() * 24}%`);
+    node.style.setProperty("--dx", `${Math.cos(angle) * distance}px`);
+    node.style.setProperty("--dy", `${Math.sin(angle) * distance}px`);
+    node.style.setProperty("--size", `${5 + Math.random() * (highRarity ? 10 : 7)}px`);
+    node.style.setProperty("--duration", `${0.65 + Math.random() * (highRarity ? 0.7 : 0.45)}s`);
+    const color = colorSet[Math.floor(Math.random() * colorSet.length)];
+    node.style.setProperty("--color", color);
+    node.style.setProperty("--glow", color);
+    layer.appendChild(node);
+    setTimeout(() => node.remove(), 1300);
+  }
+
+  for (let i = 0; i < rayCount; i += 1) {
+    const ray = document.createElement("span");
+    ray.className = "cosmic-ray";
+    ray.style.setProperty("--angle", `${(360 / rayCount) * i}deg`);
+    ray.style.setProperty("--ray-height", `${highRarity ? 320 : 230}px`);
+    layer.appendChild(ray);
+    setTimeout(() => ray.remove(), 900);
+  }
+}
+
+function showImpactToast(text) {
+  if (!elements.impactToast) {
+    return;
+  }
+  elements.impactToast.textContent = text;
+  elements.impactToast.classList.remove("show");
+  void elements.impactToast.offsetWidth;
+  elements.impactToast.classList.add("show");
+}
+
 function renderCardCodex() {
   elements.codexList.innerHTML = CARD_LIBRARY.map((card) => {
-    if (card.kind === "evolution") {
-      return `<article class="codex-item"><h3>${card.name}</h3><ul><li><span class="codex-rarity legendary">특수</span> ${card.describe()}</li></ul></article>`;
-    }
     const rarityRows = RARITIES.map((rarity) => {
       const text = card.describe(card.values[rarity.key]);
       return `<li><span class="codex-rarity ${rarity.key}">${rarity.label}</span> ${text}</li>`;
@@ -589,6 +724,10 @@ function getCardValue(cardId, rarity) {
   return card.values?.[rarity] ?? null;
 }
 
+function isPersistentInventoryCard(cardId) {
+  return cardId !== "starBreak";
+}
+
 function applyPassiveCardToBuffs(cardId, rarity, buffs) {
   const value = getCardValue(cardId, rarity);
   if (value === null || value === undefined) {
@@ -598,20 +737,20 @@ function applyPassiveCardToBuffs(cardId, rarity, buffs) {
     if (value.type === "flat") {
       buffs.clickFlatBonus += value.value;
     } else {
-      buffs.clickPercentBonus += value.value / 100;
+      buffs.clickPercentFactor *= 1 + value.value / 100;
     }
     return;
   }
   if (cardId === "spaceAcceleration") {
-    buffs.autoPercentBonus += value / 100;
+    buffs.autoPercentFactor *= 1 + value / 100;
     return;
   }
-  if (cardId === "meteorMagnet") {
-    buffs.meteorCooldownReductionSec += value;
+  if (cardId === "feverChargeReducer") {
+    buffs.feverClickReduction += value;
     return;
   }
   if (cardId === "xpAmplify") {
-    buffs.xpBonus += value / 100;
+    buffs.xpFactor *= 1 + value / 100;
     return;
   }
   if (cardId === "criticalStrike") {
@@ -620,7 +759,7 @@ function applyPassiveCardToBuffs(cardId, rarity, buffs) {
     return;
   }
   if (cardId === "feverExtend") {
-    buffs.feverDurationBonusSec += value;
+    buffs.feverDurationPercentBonus += value / 100;
     return;
   }
   if (cardId === "meteorEffectBoost") {
@@ -629,6 +768,8 @@ function applyPassiveCardToBuffs(cardId, rarity, buffs) {
 }
 
 function recalculateCardBuffs() {
+  state.cardInventory = state.cardInventory.filter((card) => isPersistentInventoryCard(card.cardId));
+  cleanupPreservedCardUids();
   const buffs = createEmptyCardBuffs();
   state.cardInventory.forEach((cardInstance) => {
     const cardBase = CARD_LIBRARY_BY_ID[cardInstance.cardId];
@@ -640,12 +781,125 @@ function recalculateCardBuffs() {
   state.cardBuffs = buffs;
 }
 
+function getNextRarity(rarity) {
+  const currentIndex = RARITY_ORDER.indexOf(rarity);
+  if (currentIndex < 0 || currentIndex >= RARITY_ORDER.length - 1) {
+    return null;
+  }
+  return RARITY_ORDER[currentIndex + 1];
+}
+
+function cleanupPreservedCardUids() {
+  const available = new Set(state.cardInventory.map((card) => card.uid));
+  state.preservedCardUids = state.preservedCardUids
+    .filter((uid, index, arr) => Number.isInteger(uid) && available.has(uid) && arr.indexOf(uid) === index)
+    .slice(0, PRESERVATION_SLOT_LIMIT);
+}
+
+function renderPreservationSlots() {
+  const preservedMap = new Map(state.cardInventory.map((card) => [card.uid, card]));
+  const slots = Array.from({ length: PRESERVATION_SLOT_LIMIT }, (_, index) => {
+    const uid = state.preservedCardUids[index];
+    const card = uid ? preservedMap.get(uid) : null;
+    if (!card) {
+      return `<article class="preservation-slot"><strong>SLOT ${index + 1}</strong>비어 있음</article>`;
+    }
+    const base = CARD_LIBRARY_BY_ID[card.cardId];
+    return `<article class="preservation-slot"><strong>SLOT ${index + 1}</strong>[${getRarityLabel(card.rarity)}] ${base?.name ?? card.cardId}</article>`;
+  });
+  elements.preservationSlots.innerHTML = slots.join("");
+}
+
+function setInventoryTabUi(tab) {
+  activeInventoryTab = tab;
+  elements.inventoryTabCards.classList.toggle("active", tab === "cards");
+  elements.inventoryTabMerge.classList.toggle("active", tab === "merge");
+  elements.inventoryCardsView.classList.toggle("hidden", tab !== "cards");
+  elements.inventoryMergeView.classList.toggle("hidden", tab !== "merge");
+}
+
+function buildMergeCandidates() {
+  const groupMap = {};
+  state.cardInventory.forEach((card) => {
+    if (!MERGE_REQUIREMENTS[card.rarity]) {
+      return;
+    }
+    const key = `${card.cardId}:${card.rarity}`;
+    if (!groupMap[key]) {
+      groupMap[key] = [];
+    }
+    groupMap[key].push(card);
+  });
+  return Object.entries(groupMap)
+    .map(([key, cards]) => {
+      const [cardId, rarity] = key.split(":");
+      const required = MERGE_REQUIREMENTS[rarity];
+      const nextRarity = getNextRarity(rarity);
+      return { cardId, rarity, cards, required, nextRarity };
+    })
+    .filter((entry) => entry.nextRarity)
+    .sort((a, b) => cardsSortKey(a.cardId, b.cardId) || RARITY_ORDER.indexOf(b.rarity) - RARITY_ORDER.indexOf(a.rarity));
+}
+
+function cardsSortKey(cardIdA, cardIdB) {
+  const nameA = CARD_LIBRARY_BY_ID[cardIdA]?.name ?? cardIdA;
+  const nameB = CARD_LIBRARY_BY_ID[cardIdB]?.name ?? cardIdB;
+  return nameA.localeCompare(nameB);
+}
+
+function renderMergeUi() {
+  const candidates = buildMergeCandidates();
+  if (candidates.length === 0) {
+    elements.mergeList.innerHTML = '<p class="inventory-empty">합성 가능한 카드가 없습니다.</p>';
+    return;
+  }
+  elements.mergeList.innerHTML = candidates
+    .map((candidate) => {
+      const base = CARD_LIBRARY_BY_ID[candidate.cardId];
+      const available = candidate.cards.length;
+      const canMerge = available >= candidate.required;
+      return `<article class="merge-item">
+        <p>${base?.name ?? candidate.cardId} | ${getRarityLabel(candidate.rarity)} ${available}장 ➜ ${getRarityLabel(
+        candidate.nextRarity
+      )} (${candidate.required}장 필요)</p>
+        <button class="merge-button" data-card-id="${candidate.cardId}" data-rarity="${candidate.rarity}" ${
+        canMerge ? "" : "disabled"
+      }>합성</button>
+      </article>`;
+    })
+    .join("");
+
+  elements.mergeList.querySelectorAll(".merge-button").forEach((button) => {
+    button.addEventListener("click", () => {
+      const cardId = button.getAttribute("data-card-id");
+      const rarity = button.getAttribute("data-rarity");
+      if (!cardId || !rarity) {
+        return;
+      }
+      const mergeItem = button.closest(".merge-item");
+      runCardMerge(cardId, rarity, mergeItem);
+    });
+  });
+}
+
+function toggleCardPreservation(uid) {
+  cleanupPreservedCardUids();
+  const index = state.preservedCardUids.indexOf(uid);
+  if (index >= 0) {
+    state.preservedCardUids.splice(index, 1);
+    return;
+  }
+  if (state.preservedCardUids.length >= PRESERVATION_SLOT_LIMIT) {
+    return;
+  }
+  state.preservedCardUids.push(uid);
+}
+
 function renderInventoryUi() {
-  const typeCountMap = {};
-  const rarityCountMap = { common: 0, rare: 0, epic: 0, legendary: 0 };
+  cleanupPreservedCardUids();
+  const rarityCountMap = { common: 0, rare: 0, epic: 0, legendary: 0, mythic: 0 };
   let passiveTotal = 0;
   let burstTotal = 0;
-  let evolutionTotal = 0;
 
   state.cardInventory.forEach((cardInstance) => {
     const cardBase = CARD_LIBRARY_BY_ID[cardInstance.cardId];
@@ -656,53 +910,65 @@ function renderInventoryUi() {
       passiveTotal += 1;
     } else if (cardBase.kind === "burst") {
       burstTotal += 1;
-    } else if (cardBase.kind === "evolution") {
-      evolutionTotal += 1;
     }
     rarityCountMap[cardInstance.rarity] = (rarityCountMap[cardInstance.rarity] ?? 0) + 1;
-    if (!typeCountMap[cardInstance.cardId]) {
-      typeCountMap[cardInstance.cardId] = { cardBase, total: 0, rarities: { common: 0, rare: 0, epic: 0, legendary: 0 } };
-    }
-    typeCountMap[cardInstance.cardId].total += 1;
-    typeCountMap[cardInstance.cardId].rarities[cardInstance.rarity] += 1;
   });
 
   elements.inventorySummary.innerHTML = `
     <article class="summary-tile"><strong>총 보유 카드</strong>${state.cardInventory.length.toLocaleString()}장</article>
     <article class="summary-tile"><strong>영구 패시브 카드</strong>${passiveTotal.toLocaleString()}장</article>
-    <article class="summary-tile"><strong>일반/희귀/영웅/전설</strong>${rarityCountMap.common}/${rarityCountMap.rare}/${rarityCountMap.epic}/${rarityCountMap.legendary}</article>
-    <article class="summary-tile"><strong>일시 효과/진화 카드</strong>${burstTotal}/${evolutionTotal}</article>
+    <article class="summary-tile"><strong>일반/희귀/영웅/전설/신화</strong>${rarityCountMap.common}/${rarityCountMap.rare}/${rarityCountMap.epic}/${rarityCountMap.legendary}/${rarityCountMap.mythic}</article>
+    <article class="summary-tile"><strong>일시 효과 카드</strong>${burstTotal}장</article>
   `;
 
+  renderPreservationSlots();
+  renderMergeUi();
   elements.inventoryGrid.innerHTML = "";
   if (state.cardInventory.length === 0) {
     elements.inventoryGrid.innerHTML = '<p class="inventory-empty">아직 보유한 카드가 없습니다.</p>';
     return;
   }
-  const grouped = Object.values(typeCountMap).sort((a, b) => b.total - a.total || a.cardBase.name.localeCompare(b.cardBase.name));
-  grouped.forEach(({ cardBase, total, rarities }) => {
-    const highestRarity = [...RARITY_ORDER].reverse().find((rarityKey) => rarities[rarityKey] > 0) ?? "common";
+
+  const sortedCards = [...state.cardInventory].sort(
+    (a, b) =>
+      RARITY_ORDER.indexOf(b.rarity) - RARITY_ORDER.indexOf(a.rarity) ||
+      cardsSortKey(a.cardId, b.cardId) ||
+      a.uid - b.uid
+  );
+
+  sortedCards.forEach((cardInstance) => {
+    const cardBase = CARD_LIBRARY_BY_ID[cardInstance.cardId];
+    if (!cardBase) {
+      return;
+    }
     const cardNode = document.createElement("article");
-    cardNode.className = `inventory-card ${highestRarity}`;
-    const rarityLine = RARITIES.map((rarity) => `${rarity.label} ${rarities[rarity.key]}`).join(" | ");
-    const highestValue = getCardValue(cardBase.id, highestRarity);
+    cardNode.className = `inventory-card ${cardInstance.rarity} selectable`;
+    if (state.preservedCardUids.includes(cardInstance.uid)) {
+      cardNode.classList.add("selected-preserve");
+    }
+    const value = getCardValue(cardBase.id, cardInstance.rarity);
     cardNode.innerHTML = `<h4>${cardBase.name}</h4>
-      <p>${cardBase.kind === "passive" ? "영구 패시브" : cardBase.kind === "burst" ? "일시 효과" : "진화 효과"}</p>
-      <p>${rarityLine}</p>
-      <p>${cardBase.describe(highestValue)}</p>
-      <p class="inventory-count">총 ${total.toLocaleString()}장 보유</p>`;
+      <p>${getRarityLabel(cardInstance.rarity)} | #${cardInstance.uid}</p>
+      <p>${cardBase.kind === "passive" ? "영구 패시브" : "일시 효과"}</p>
+      <p>${cardBase.describe(value)}</p>
+      <p class="inventory-count">${state.preservedCardUids.includes(cardInstance.uid) ? "보존 지정됨" : "클릭하여 보존 지정"}</p>`;
+    cardNode.addEventListener("click", () => {
+      toggleCardPreservation(cardInstance.uid);
+      renderInventoryUi();
+      saveState();
+    });
     elements.inventoryGrid.appendChild(cardNode);
   });
 }
 
 function buildStatSnapshot(customBuffs = state.cardBuffs) {
   const shopLayer = 1 + getShopPercentBonus();
-  const clickLayer = 1 + customBuffs.clickPercentBonus;
-  const autoLayer = 1 + customBuffs.autoPercentBonus;
+  const clickLayer = customBuffs.clickPercentFactor;
+  const autoLayer = customBuffs.autoPercentFactor;
   return {
     clickGain: (state.clickPower + customBuffs.clickFlatBonus) * shopLayer * clickLayer * getFeverMultiplier(),
     perSecond: getBasePerSecondRate() * shopLayer * autoLayer * getFeverMultiplier(),
-    criticalChance: Math.min(0.95, Math.max(0, getBaseCriticalChance() + customBuffs.criticalChanceBonus))
+    criticalChance: getCriticalChanceWithBuffs(customBuffs)
   };
 }
 
@@ -715,56 +981,70 @@ function formatDelta(beforeValue, afterValue, digits = 1) {
 }
 
 function previewCardText(card) {
+  const evolutionSuffix = card.hasEmbeddedEvolution ? " + 성장의 빛 내장" : "";
   const before = buildStatSnapshot();
   if (card.baseId === "starBreak") {
     const value = getCardValue(card.baseId, card.rarityClass);
     const burstGain = getPerSecondRate() * value;
-    return `획득량 미리보기: 스타더스트 +${formatRate(burstGain)} (즉시 지급)`;
-  }
-  if (card.baseId === "growthLight") {
-    return "성장의 빛: 가장 낮은 등급 카드 1장을 한 단계 진화합니다.";
+    return `획득량 미리보기: 스타더스트 +${formatRate(burstGain)} (즉시 지급)${evolutionSuffix}`;
   }
   const virtualBuffs = { ...state.cardBuffs };
   applyPassiveCardToBuffs(card.baseId, card.rarityClass, virtualBuffs);
   const after = buildStatSnapshot(virtualBuffs);
   if (card.baseId === "overloadClick") {
-    return `클릭 생산량: ${formatDelta(before.clickGain, after.clickGain, 1)}`;
+    return `클릭 생산량: ${formatDelta(before.clickGain, after.clickGain, 1)}${evolutionSuffix}`;
   }
   if (card.baseId === "spaceAcceleration") {
-    return `자동 생산량/초: ${formatDelta(before.perSecond, after.perSecond, 1)}`;
+    return `자동 생산량/초: ${formatDelta(before.perSecond, after.perSecond, 1)}${evolutionSuffix}`;
   }
   if (card.baseId === "xpAmplify") {
     const beforeXp = getClickXpGain();
-    const afterXp = BASE_CLICK_XP * (1 + virtualBuffs.xpBonus);
-    return `클릭 XP 획득량: ${formatDelta(beforeXp, afterXp, 2)}`;
+    const afterXp = BASE_CLICK_XP * virtualBuffs.xpFactor;
+    return `클릭 XP 획득량: ${formatDelta(beforeXp, afterXp, 2)}${evolutionSuffix}`;
   }
   if (card.baseId === "criticalStrike") {
     const beforeCrit = getCriticalChance();
-    const afterCrit = Math.min(0.95, Math.max(0, getBaseCriticalChance() + virtualBuffs.criticalChanceBonus));
+    const afterCrit = getCriticalChanceWithBuffs(virtualBuffs);
+    const beforeRawCrit = getRawCriticalChanceWithBuffs(state.cardBuffs);
+    const afterRawCrit = getRawCriticalChanceWithBuffs(virtualBuffs);
+    const beforeOverflow = getCriticalOverflowMultiplierWithBuffs(state.cardBuffs);
+    const afterOverflow = getCriticalOverflowMultiplierWithBuffs(virtualBuffs);
+    const beforeMultiplier = getCriticalMultiplier();
+    const baseAfterMultiplier = Math.max(1, getBaseCriticalMultiplier() + virtualBuffs.criticalMultiplierBonus);
+    const afterMultiplier = baseAfterMultiplier * afterOverflow;
     return `크리티컬 확률: ${formatPercent(beforeCrit, 2)} ➜ ${formatPercent(afterCrit, 2)} (+${formatPercent(
       afterCrit - beforeCrit,
       2
-    )})`;
+    )}) | 오버확률: ${formatPercent(beforeRawCrit, 2)} ➜ ${formatPercent(afterRawCrit, 2)} | 배율: x${formatRate(
+      beforeMultiplier
+    )} ➜ x${formatRate(afterMultiplier)} (오버확률 보정 x${formatRate(beforeOverflow)} ➜ x${formatRate(
+      afterOverflow
+    )})${evolutionSuffix}`;
   }
-  if (card.baseId === "meteorMagnet") {
-    const beforeCooldown = getMeteorCooldownMs();
-    const afterCooldown = Math.max(
-      METEOR_MIN_COOLDOWN_MS,
-      METEOR_BASE_COOLDOWN_MS - virtualBuffs.meteorCooldownReductionSec * 1000
-    );
-    return `운석 쿨타임: ${Math.round(beforeCooldown / 1000)}초 ➜ ${Math.round(afterCooldown / 1000)}초`;
+  if (card.baseId === "feverChargeReducer") {
+    const beforeClicks = getFeverTriggerClicksRequired(state.cardBuffs);
+    const afterClicks = getFeverTriggerClicksRequired(virtualBuffs);
+    return `피버 필요 클릭: ${beforeClicks}회 ➜ ${afterClicks}회${evolutionSuffix}`;
   }
   if (card.baseId === "feverExtend") {
-    return `피버 시간: ${Math.round(getFeverDurationMs() / 1000)}초 ➜ ${Math.round(
-      Math.min(MAX_FEVER_DURATION_MS, BASE_FEVER_DURATION_MS + virtualBuffs.feverDurationBonusSec * 1000) / 1000
-    )}초`;
+    const beforeDuration = Math.round(getFeverDurationMs() / 1000);
+    const afterDuration = Math.round(
+      Math.min(MAX_FEVER_DURATION_MS, BASE_FEVER_DURATION_MS * (1 + virtualBuffs.feverDurationPercentBonus)) / 1000
+    );
+    const beforePercent = formatRounded(state.cardBuffs.feverDurationPercentBonus * 100, 0);
+    const afterPercent = formatRounded(virtualBuffs.feverDurationPercentBonus * 100, 0);
+    return `피버 시간: ${beforeDuration}초(+${beforePercent}%) ➜ ${afterDuration}초(+${afterPercent}%)${evolutionSuffix}`;
   }
   if (card.baseId === "meteorEffectBoost") {
     const beforeFever = FEVER_MULTIPLIER * (1 + state.cardBuffs.feverMultiplierBonus);
     const afterFever = FEVER_MULTIPLIER * (1 + virtualBuffs.feverMultiplierBonus);
-    return `피버 배율: x${formatRate(beforeFever)} ➜ x${formatRate(afterFever)}`;
+    return `피버 배율: x${formatRate(beforeFever)} ➜ x${formatRate(afterFever)}${evolutionSuffix}`;
   }
-  return `클릭 생산량: ${formatDelta(before.clickGain, after.clickGain, 1)} / 자동 생산량: ${formatDelta(before.perSecond, after.perSecond, 1)}`;
+  return `클릭 생산량: ${formatDelta(before.clickGain, after.clickGain, 1)} / 자동 생산량: ${formatDelta(
+    before.perSecond,
+    after.perSecond,
+    1
+  )}${evolutionSuffix}`;
 }
 
 function getXpRequiredForLevel(level) {
@@ -772,7 +1052,7 @@ function getXpRequiredForLevel(level) {
 }
 
 function getClickXpGain() {
-  return BASE_CLICK_XP * (1 + state.cardBuffs.xpBonus);
+  return BASE_CLICK_XP * state.cardBuffs.xpFactor;
 }
 
 function getPermanentGainBonus() {
@@ -780,20 +1060,38 @@ function getPermanentGainBonus() {
 }
 
 function getClickCardBonus() {
-  return state.cardBuffs.clickPercentBonus;
+  return state.cardBuffs.clickPercentFactor;
 }
 
 function getAutoCardBonus() {
-  return state.cardBuffs.autoPercentBonus;
+  return state.cardBuffs.autoPercentFactor;
+}
+
+function getFeverTriggerClicksRequired(customBuffs = state.cardBuffs) {
+  return Math.max(1, FEVER_TRIGGER_CLICKS - customBuffs.feverClickReduction);
 }
 
 function getMeteorCooldownMs() {
-  const reduced = METEOR_BASE_COOLDOWN_MS - state.cardBuffs.meteorCooldownReductionSec * 1000;
-  return Math.max(METEOR_MIN_COOLDOWN_MS, reduced);
+  return Math.max(METEOR_MIN_COOLDOWN_MS, METEOR_BASE_COOLDOWN_MS);
 }
 
 function getBaseCriticalChance() {
   return Math.min(MAX_BASE_CRITICAL_CHANCE, BASE_CRITICAL_CHANCE + state.criticalShop.chance.level * 0.01);
+}
+
+function getRawCriticalChanceWithBuffs(customBuffs = state.cardBuffs) {
+  const additiveBaseChance = getBaseCriticalChance();
+  const additiveCardBonus = Math.max(0, customBuffs.criticalChanceBonus || 0);
+  return Math.max(0, additiveBaseChance + additiveCardBonus);
+}
+
+function getCriticalChanceWithBuffs(customBuffs = state.cardBuffs) {
+  return Math.min(1, getRawCriticalChanceWithBuffs(customBuffs));
+}
+
+function getCriticalOverflowMultiplierWithBuffs(customBuffs = state.cardBuffs) {
+  const rawCriticalChance = getRawCriticalChanceWithBuffs(customBuffs);
+  return rawCriticalChance > 1 ? rawCriticalChance : 1;
 }
 
 function getBaseCriticalMultiplier() {
@@ -804,15 +1102,16 @@ function getBaseCriticalMultiplier() {
 }
 
 function getCriticalChance() {
-  return Math.min(0.95, Math.max(0, getBaseCriticalChance() + state.cardBuffs.criticalChanceBonus));
+  return getCriticalChanceWithBuffs(state.cardBuffs);
 }
 
 function getCriticalMultiplier() {
-  return Math.max(1, getBaseCriticalMultiplier() + state.cardBuffs.criticalMultiplierBonus);
+  const baseMultiplier = Math.max(1, getBaseCriticalMultiplier() + state.cardBuffs.criticalMultiplierBonus);
+  return baseMultiplier * getCriticalOverflowMultiplierWithBuffs(state.cardBuffs);
 }
 
 function getFeverDurationMs() {
-  return Math.min(MAX_FEVER_DURATION_MS, BASE_FEVER_DURATION_MS + state.cardBuffs.feverDurationBonusSec * 1000);
+  return Math.min(MAX_FEVER_DURATION_MS, BASE_FEVER_DURATION_MS * (1 + state.cardBuffs.feverDurationPercentBonus));
 }
 
 function getBasePerSecondRate() {
@@ -843,14 +1142,14 @@ function getFeverMultiplier() {
 
 function getPerSecondRate() {
   const shopLayer = 1 + getShopPercentBonus();
-  const cardLayer = 1 + getAutoCardBonus();
+  const cardLayer = getAutoCardBonus();
   return getBasePerSecondRate() * shopLayer * cardLayer * getFeverMultiplier();
 }
 
 function getClickGain() {
   const baseClick = state.clickPower + state.cardBuffs.clickFlatBonus;
   const shopLayer = 1 + getShopPercentBonus();
-  const cardLayer = 1 + getClickCardBonus();
+  const cardLayer = getClickCardBonus();
   return baseClick * shopLayer * cardLayer * getFeverMultiplier();
 }
 
@@ -870,6 +1169,7 @@ function saveState() {
     clickPower: state.clickPower,
     level: state.level,
     xp: state.xp,
+    clicksTowardFever: state.clicksTowardFever,
     autoMiner: {
       price: state.autoMiner.price,
       amount: state.autoMiner.amount
@@ -901,6 +1201,7 @@ function saveState() {
       cardId: card.cardId,
       rarity: card.rarity
     })),
+    preservedCardUids: state.preservedCardUids.slice(0, PRESERVATION_SLOT_LIMIT),
     nextCardUid: state.nextCardUid,
     stats: {
       totalClicks: state.stats.totalClicks,
@@ -933,6 +1234,7 @@ function loadState() {
     state.clickPower = Math.max(1, Number(parsed.clickPower) || 1);
     state.level = Math.max(1, Math.floor(Number(parsed.level) || 1));
     state.xp = Math.max(0, Number(parsed.xp) || 0);
+    state.clicksTowardFever = Math.max(0, Math.floor(Number(parsed.clicksTowardFever) || 0));
 
     state.autoMiner.price = Math.max(50, Number(parsed.autoMiner?.price) || 50);
     state.autoMiner.amount = Math.max(0, Number(parsed.autoMiner?.amount) || 0);
@@ -966,12 +1268,25 @@ function loadState() {
             cardId: String(card?.cardId || ""),
             rarity: String(card?.rarity || "common")
           }))
-          .filter((card) => CARD_LIBRARY_BY_ID[card.cardId] && RARITY_ORDER.includes(card.rarity))
+          .filter(
+            (card) =>
+              CARD_LIBRARY_BY_ID[card.cardId] &&
+              RARITY_ORDER.includes(card.rarity) &&
+              isPersistentInventoryCard(card.cardId)
+          )
+      : [];
+    state.preservedCardUids = Array.isArray(parsed.preservedCardUids)
+      ? parsed.preservedCardUids
+          .map((uid) => Math.floor(Number(uid)))
+          .filter((uid) => Number.isInteger(uid))
+          .slice(0, PRESERVATION_SLOT_LIMIT)
       : [];
     const parsedNextUid = Math.floor(Number(parsed.nextCardUid) || 0);
     const maxUid = state.cardInventory.reduce((max, card) => Math.max(max, card.uid), 0);
     state.nextCardUid = Math.max(1, parsedNextUid || maxUid + 1);
+    cleanupPreservedCardUids();
     recalculateCardBuffs();
+    state.clicksTowardFever = Math.min(state.clicksTowardFever, getFeverTriggerClicksRequired());
 
     state.stats.totalClicks = Math.max(0, Number(parsed.stats?.totalClicks) || 0);
     state.stats.meteorClicks = Math.max(0, Number(parsed.stats?.meteorClicks) || 0);
@@ -999,7 +1314,9 @@ function updateFeverLabel() {
     elements.feverStatus.textContent = `피버 타임 x${formatRate(feverMultiplier)} (${remainSec}초 남음)`;
     return;
   }
-  elements.feverStatus.textContent = `피버 타임 비활성 (지속 ${Math.round(getFeverDurationMs() / 1000)}초)`;
+  const requiredClicks = getFeverTriggerClicksRequired();
+  const remainingClicks = Math.max(0, requiredClicks - state.clicksTowardFever);
+  elements.feverStatus.textContent = `피버 충전 중 (${remainingClicks}회 남음, 지속 ${Math.round(getFeverDurationMs() / 1000)}초)`;
 }
 
 function updateSatellites() {
@@ -1097,7 +1414,7 @@ function rollCardRarity() {
   return RARITIES[RARITIES.length - 1];
 }
 
-function buildLevelupCard(baseCard, rarity) {
+function buildLevelupCard(baseCard, rarity, hasEmbeddedEvolution = false) {
   const value = baseCard.values?.[rarity.key];
   return {
     id: `${baseCard.id}-${rarity.key}`,
@@ -1106,7 +1423,8 @@ function buildLevelupCard(baseCard, rarity) {
     rarityLabel: rarity.label,
     rarityClass: rarity.key,
     kind: baseCard.kind,
-    description: baseCard.describe(value)
+    description: `${baseCard.describe(value)}${hasEmbeddedEvolution ? " + 성장의 빛 내장" : ""}`,
+    hasEmbeddedEvolution
   };
 }
 
@@ -1117,7 +1435,8 @@ function getRandomLevelupCards(count) {
   while (selected.length < count && pool.length > 0) {
     const idx = Math.floor(Math.random() * pool.length);
     const pickedCard = pool.splice(idx, 1)[0];
-    selected.push(buildLevelupCard(pickedCard, rarity));
+    const embeddedEvolution = Math.random() < EMBEDDED_EVOLUTION_CHANCE;
+    selected.push(buildLevelupCard(pickedCard, rarity, embeddedEvolution));
   }
   return selected;
 }
@@ -1170,44 +1489,94 @@ function addCardToInventory(cardId, rarity) {
   return newCard;
 }
 
-function tryEvolveOwnedCard() {
+function tryEvolveRandomOwnedCard() {
   const upgradable = state.cardInventory.filter(
-    (card) => RARITY_ORDER.includes(card.rarity) && card.rarity !== "legendary"
+    (card) => RARITY_ORDER.includes(card.rarity) && card.rarity !== "mythic"
   );
   if (upgradable.length === 0) {
     return null;
   }
-  const sorted = [...upgradable].sort((a, b) => RARITY_ORDER.indexOf(a.rarity) - RARITY_ORDER.indexOf(b.rarity));
-  const target = sorted[0];
+  const target = upgradable[Math.floor(Math.random() * upgradable.length)];
   const currentIndex = RARITY_ORDER.indexOf(target.rarity);
   target.rarity = RARITY_ORDER[currentIndex + 1];
   recalculateCardBuffs();
   return target;
 }
 
-function applyLevelupCardSelection(card) {
-  if (card.baseId === "growthLight") {
-    const evolved = tryEvolveOwnedCard();
-    if (!evolved) {
-      return "진화할 카드가 없어 성장 효과가 발동하지 않았습니다.";
+function runCardMerge(cardId, rarity, mergeItemNode = null) {
+  if (mergeInProgress) {
+    return;
+  }
+  const required = MERGE_REQUIREMENTS[rarity];
+  const nextRarity = getNextRarity(rarity);
+  if (!required || !nextRarity) {
+    return;
+  }
+  const candidates = state.cardInventory.filter((card) => card.cardId === cardId && card.rarity === rarity);
+  if (candidates.length < required) {
+    return;
+  }
+  mergeInProgress = true;
+  if (mergeItemNode) {
+    mergeItemNode.classList.add("merging");
+  }
+  playMergeChargeSound();
+  spawnCosmicSelectionBurst(nextRarity);
+
+  setTimeout(() => {
+    const refreshedCandidates = state.cardInventory.filter((card) => card.cardId === cardId && card.rarity === rarity);
+    if (refreshedCandidates.length < required) {
+      mergeInProgress = false;
+      updateView();
+      return;
     }
-    const evolvedCardBase = CARD_LIBRARY_BY_ID[evolved.cardId];
-    return `${evolvedCardBase?.name ?? evolved.cardId} 카드가 ${getRarityLabel(evolved.rarity)} 등급으로 진화했습니다!`;
+    const toConsume = refreshedCandidates.slice(0, required);
+    const consumeUidSet = new Set(toConsume.map((card) => card.uid));
+    state.cardInventory = state.cardInventory.filter((card) => !consumeUidSet.has(card.uid));
+    state.preservedCardUids = state.preservedCardUids.filter((uid) => !consumeUidSet.has(uid));
+    addCardToInventory(cardId, nextRarity);
+    cleanupPreservedCardUids();
+    recalculateCardBuffs();
+    playMergeImpactSound();
+    spawnCosmicSelectionBurst(nextRarity);
+    showImpactToast(`합성 성공! [${getRarityLabel(nextRarity)}] 등급 획득!`);
+    mergeInProgress = false;
+    updateView();
+    saveState();
+  }, 500);
+}
+
+function applyLevelupCardSelection(card) {
+  const baseCard = CARD_LIBRARY_BY_ID[card.baseId];
+  if (!baseCard) {
+    return "카드 정보를 찾지 못했습니다.";
   }
 
-  addCardToInventory(card.baseId, card.rarityClass);
-  const baseCard = CARD_LIBRARY_BY_ID[card.baseId];
+  let notice = "저장소에 추가됨";
+  const shouldPersistInInventory = isPersistentInventoryCard(card.baseId);
+  if (shouldPersistInInventory) {
+    addCardToInventory(card.baseId, card.rarityClass);
+  }
   if (baseCard?.kind === "burst") {
     const burstValue = getCardValue(card.baseId, card.rarityClass);
     state.stardust += getPerSecondRate() * burstValue;
-    return `저장소에 추가됨 + 즉시 ${formatRounded(burstValue, 0)}초 분량 보너스 지급`;
+    notice = `즉시 ${formatRounded(burstValue, 0)}초 분량 보너스 지급 (소모형 카드)`;
   }
 
-  if (baseCard?.kind === "passive") {
+  if (baseCard.kind === "passive") {
     recalculateCardBuffs();
-    return "저장소에 추가됨 (영구 패시브 즉시 적용)";
+    notice = "저장소에 추가됨 (영구 패시브 즉시 적용)";
   }
-  return "저장소에 추가됨";
+
+  if (card.hasEmbeddedEvolution) {
+    const evolved = tryEvolveRandomOwnedCard();
+    if (!evolved) {
+      return `${notice} + 성장의 빛 발동 실패(진화 가능한 카드 없음)`;
+    }
+    const evolvedBase = CARD_LIBRARY_BY_ID[evolved.cardId];
+    return `${notice} + 성장의 빛 발동! ${evolvedBase?.name ?? evolved.cardId} ➜ ${getRarityLabel(evolved.rarity)}`;
+  }
+  return notice;
 }
 
 function openLevelupModal() {
@@ -1230,6 +1599,7 @@ function openLevelupModal() {
     }
   }, LEVELUP_CARD_LOCK_MS);
   playLevelupSound();
+  spawnCosmicSelectionBurst("rare");
 
   const cards = getRandomLevelupCards(3);
   cards.forEach((card) => {
@@ -1237,7 +1607,7 @@ function openLevelupModal() {
     button.type = "button";
     button.className = `levelup-card ${card.rarityClass}`;
     button.innerHTML = `<span class="rarity-chip">${card.rarityLabel}</span><h3>${card.name}</h3><p>${card.description}</p>`;
-    if (card.rarityClass === "legendary") {
+    if (card.rarityClass === "legendary" || card.rarityClass === "mythic") {
       attachLegendaryDust(button);
     }
     const previewText = previewCardText(card);
@@ -1254,12 +1624,20 @@ function openLevelupModal() {
       if (Date.now() < levelupCardUnlockAt) {
         return;
       }
-      playCardPickSound();
+      playCardPickSound(card.rarityClass);
+      spawnCosmicSelectionBurst(card.rarityClass);
+      button.classList.add("radiant-pick");
       if (card.rarityClass === "legendary" && card.baseId === "starBreak") {
         triggerLegendaryBurst("STAR BREAK JACKPOT!");
       }
       if (card.rarityClass === "legendary" && card.baseId === "meteorEffectBoost") {
         triggerLegendaryBurst("FEVER OVERDRIVE!");
+      }
+      if (card.rarityClass === "mythic") {
+        triggerLegendaryBurst("MYTHIC COSMIC ASCENSION!");
+      }
+      if (card.rarityClass === "legendary" || card.rarityClass === "mythic") {
+        showImpactToast(`${card.rarityLabel} 카드 획득!`);
       }
       const selectionNotice = applyLevelupCardSelection(card);
       elements.levelupPreview.textContent = selectionNotice;
@@ -1304,12 +1682,14 @@ function updateLevelPanel() {
 
 function updateView() {
   const rebirthGain = getRebirthDarkMatterGain();
-  const meteorChance = Date.now() >= state.meteorCooldownUntil ? METEOR_SPAWN_CHANCE_AFTER_COOLDOWN : 0;
+  const requiredClicksForFever = getFeverTriggerClicksRequired();
+  const feverProgress = Math.min(1, state.clicksTowardFever / requiredClicksForFever);
+  const clicksUntilFever = Math.max(0, requiredClicksForFever - state.clicksTowardFever);
   const criticalChance = getCriticalChance();
   const criticalMultiplier = getCriticalMultiplier();
   const clickXpGain = getClickXpGain();
-  const perSecondMultiplier = (1 + getShopPercentBonus()) * (1 + getAutoCardBonus()) * getFeverMultiplier();
-  const clickMultiplier = (1 + getShopPercentBonus()) * (1 + getClickCardBonus()) * getFeverMultiplier();
+  const perSecondMultiplier = (1 + getShopPercentBonus()) * getAutoCardBonus() * getFeverMultiplier();
+  const clickMultiplier = (1 + getShopPercentBonus()) * getClickCardBonus() * getFeverMultiplier();
 
   elements.stardust.textContent = formatStardust(state.stardust);
   elements.darkMatter.textContent = state.darkMatter.toLocaleString();
@@ -1348,14 +1728,17 @@ function updateView() {
   elements.rebirthButton.textContent = `블랙홀 개방 (환생 +${rebirthGain} DM)`;
   elements.statCriticalChance.textContent = formatPercent(criticalChance, 2);
   elements.statCriticalMultiplier.textContent = `x${formatRate(criticalMultiplier)}`;
-  elements.statMeteorChance.textContent = formatPercent(meteorChance, 2);
-  elements.statFeverDuration.textContent = `${Math.round(getFeverDurationMs() / 1000)}초`;
+  elements.statMeteorChance.textContent = `${clicksUntilFever}회 (${formatPercent(feverProgress, 1)})`;
+  elements.statFeverDuration.textContent = `${Math.round(getFeverDurationMs() / 1000)}초 (+${formatRounded(
+    state.cardBuffs.feverDurationPercentBonus * 100,
+    0
+  )}%)`;
   elements.statPerSecondMultiplier.textContent = `x${formatRate(perSecondMultiplier)}`;
   elements.statClickMultiplier.textContent = `x${formatRate(clickMultiplier)}`;
   elements.statCardClickFlat.textContent = `+${formatRate(state.cardBuffs.clickFlatBonus)}`;
-  elements.statCardAutoMultiplier.textContent = `x${formatRate(1 + state.cardBuffs.autoPercentBonus)}`;
+  elements.statCardAutoMultiplier.textContent = `x${formatRate(state.cardBuffs.autoPercentFactor)}`;
   elements.statXpGain.textContent = formatRate(clickXpGain);
-  elements.statXpMultiplier.textContent = `x${formatRate(1 + state.cardBuffs.xpBonus)}`;
+  elements.statXpMultiplier.textContent = `x${formatRate(state.cardBuffs.xpFactor)}`;
 
   updateLevelPanel();
   updateFeverLabel();
@@ -1417,7 +1800,7 @@ function startFever() {
   playFeverStartSound();
   state.stats.meteorClicks += 1;
   state.feverUntil = Date.now() + getFeverDurationMs();
-  removeMeteor(false);
+  state.clicksTowardFever = 0;
   checkAchievements();
   updateView();
   saveState();
@@ -1456,16 +1839,26 @@ function runRebirth() {
   }
 
   const confirmed = window.confirm(
-    `블랙홀 환생을 진행할까요?\n현재 스타더스트와 일반 업그레이드가 초기화되고 Dark Matter ${gain}개를 얻습니다.`
+    `블랙홀 환생을 진행할까요?\n레벨/XP/보유 카드가 초기화되며, 보존 저장소 지정 카드만 유지됩니다.\nDark Matter ${gain}개를 획득합니다.`
   );
   if (!confirmed) {
     return;
   }
 
+  cleanupPreservedCardUids();
+  const preservedCards = state.cardInventory
+    .filter((card) => state.preservedCardUids.includes(card.uid))
+    .slice(0, PRESERVATION_SLOT_LIMIT)
+    .map((card) => ({ ...card }));
+
   state.darkMatter += gain;
 
   state.stardust = 0;
   state.clickPower = 1;
+  state.level = 1;
+  state.xp = 0;
+  state.clicksTowardFever = 0;
+  state.pendingLevelUps = 0;
   state.autoMiner.amount = 0;
   state.autoMiner.price = 50;
   state.quantumProbe.amount = 0;
@@ -1473,7 +1866,11 @@ function runRebirth() {
   state.milkyDrive.amount = 0;
   state.milkyDrive.price = 200;
   state.feverUntil = 0;
+  state.cardInventory = preservedCards;
+  state.preservedCardUids = preservedCards.map((card) => card.uid);
+  recalculateCardBuffs();
   removeMeteor();
+  closeLevelupModal();
 
   if (state.pendingLevelUps > 0) {
     openLevelupModal();
@@ -1516,6 +1913,12 @@ elements.planetButton.addEventListener("click", (event) => {
   state.stardust += clickGain;
   playClickSound(criticalHit);
   state.stats.totalClicks += 1;
+  if (!isFeverActive()) {
+    state.clicksTowardFever += 1;
+    if (state.clicksTowardFever >= getFeverTriggerClicksRequired()) {
+      startFever();
+    }
+  }
   gainXp(getClickXpGain());
 
   const rect = elements.planetButton.getBoundingClientRect();
@@ -1533,6 +1936,7 @@ elements.buyAutoMiner.addEventListener("click", () => {
   if (!spendStardust(state.autoMiner.price)) {
     return;
   }
+  playUpgradeSound();
   state.autoMiner.amount += 1;
   state.stats.autoMinersPurchased += 1;
   state.autoMiner.price = raisePrice(state.autoMiner.price);
@@ -1545,6 +1949,7 @@ elements.buyQuantumProbe.addEventListener("click", () => {
   if (!spendStardust(state.quantumProbe.price)) {
     return;
   }
+  playUpgradeSound();
   state.quantumProbe.amount += 1;
   state.quantumProbe.price = raisePrice(state.quantumProbe.price);
   updateView();
@@ -1555,6 +1960,7 @@ elements.buyMilkyDrive.addEventListener("click", () => {
   if (!spendStardust(state.milkyDrive.price)) {
     return;
   }
+  playUpgradeSound();
   state.milkyDrive.amount += 1;
   state.clickPower += state.milkyDrive.clickBoost;
   state.milkyDrive.price = raisePrice(state.milkyDrive.price);
@@ -1569,6 +1975,7 @@ elements.buyCriticalChanceShop.addEventListener("click", () => {
   if (!spendStardust(state.criticalShop.chance.price)) {
     return;
   }
+  playUpgradeSound();
   state.criticalShop.chance.level += 1;
   state.criticalShop.chance.price = raisePrice(state.criticalShop.chance.price);
   updateView();
@@ -1582,6 +1989,7 @@ elements.buyCriticalMultiplierShop.addEventListener("click", () => {
   if (!spendStardust(state.criticalShop.multiplier.price)) {
     return;
   }
+  playUpgradeSound();
   state.criticalShop.multiplier.level += 1;
   state.criticalShop.multiplier.price = raisePrice(state.criticalShop.multiplier.price);
   updateView();
@@ -1593,6 +2001,7 @@ elements.buyDistortion.addEventListener("click", () => {
   if (!spendDarkMatter(upgrade.price)) {
     return;
   }
+  playUpgradeSound();
   upgrade.level += 1;
   upgrade.price = raiseDarkMatterPrice(upgrade.price);
   updateView();
@@ -1604,6 +2013,7 @@ elements.buySingularity.addEventListener("click", () => {
   if (!spendDarkMatter(upgrade.price)) {
     return;
   }
+  playUpgradeSound();
   upgrade.level += 1;
   upgrade.price = raiseDarkMatterPrice(upgrade.price);
   updateView();
@@ -1633,6 +2043,14 @@ elements.codexToggle.addEventListener("click", (event) => {
 elements.inventoryToggle.addEventListener("click", (event) => {
   event.stopPropagation();
   togglePanel(elements.inventoryPanel, elements.inventoryToggle);
+});
+
+elements.inventoryTabCards.addEventListener("click", () => {
+  setInventoryTabUi("cards");
+});
+
+elements.inventoryTabMerge.addEventListener("click", () => {
+  setInventoryTabUi("merge");
 });
 
 document.addEventListener("click", (event) => {
@@ -1699,20 +2117,12 @@ elements.resetConfirmOverlay.addEventListener("click", (event) => {
 
 setInterval(() => {
   const feverActive = isFeverActive();
-  if (wasFeverActiveLastTick && !feverActive) {
-    scheduleMeteorCooldown();
-  }
   wasFeverActiveLastTick = feverActive;
 
   if (!state.isLevelupOpen) {
     const gain = getPerSecondRate();
     if (gain > 0) {
       state.stardust += gain;
-    }
-
-    const cooldownReady = Date.now() >= state.meteorCooldownUntil;
-    if (cooldownReady && !state.meteorVisible && !feverActive && Math.random() < METEOR_SPAWN_CHANCE_AFTER_COOLDOWN) {
-      spawnGoldenMeteor();
     }
   }
 
@@ -1722,11 +2132,9 @@ setInterval(() => {
 }, 1000);
 
 loadState();
-if (!state.meteorVisible && state.meteorCooldownUntil <= 0) {
-  scheduleMeteorCooldown();
-}
 wasFeverActiveLastTick = isFeverActive();
 checkAchievements();
 renderCardCodex();
 updateAudioToggleUi();
+setInventoryTabUi("cards");
 updateView();

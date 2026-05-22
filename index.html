@@ -8,6 +8,8 @@
 </head>
 <body>
   <div id="achievement-toast" class="achievement-toast" aria-live="polite"></div>
+  <div id="fx-overlay" class="fx-overlay" aria-hidden="true"></div>
+  <div id="impact-toast" class="impact-toast" aria-live="polite"></div>
   <button
     id="achievements-toggle"
     class="corner-toggle corner-toggle-bottom-right"
@@ -129,7 +131,7 @@
       <div class="stat-grid">
         <p>크리티컬 확률: <strong id="stat-critical-chance">5%</strong></p>
         <p>크리티컬 배율: <strong id="stat-critical-multiplier">x2</strong></p>
-        <p>황금 운석 확률: <strong id="stat-meteor-chance">0%</strong></p>
+        <p>피버 충전 진행도: <strong id="stat-meteor-chance">100회 (0%)</strong></p>
         <p>피버 지속 시간: <strong id="stat-fever-duration">10초</strong></p>
         <p>초당 생산량 배수: <strong id="stat-per-second-multiplier">x1</strong></p>
         <p>클릭 효율 배수: <strong id="stat-click-multiplier">x1</strong></p>
@@ -147,9 +149,27 @@
 
     <section id="inventory-panel" class="shop inventory-panel floating-panel">
       <h2>우주 개척 도감</h2>
-      <div id="inventory-summary" class="inventory-summary"></div>
-      <h3>보유 카드 상세</h3>
-      <div id="inventory-grid" class="inventory-grid"></div>
+      <section class="preservation-section">
+        <h3>우주 보존 저장소 (환생 보존 5슬롯)</h3>
+        <p class="preservation-help">보유 카드 클릭으로 지정/해제. 블랙홀 환생 후에도 지정 카드만 유지됩니다.</p>
+        <div id="preservation-slots" class="preservation-slots"></div>
+      </section>
+
+      <div class="inventory-tabs">
+        <button id="inventory-tab-cards" class="inventory-tab active" type="button">보유 카드</button>
+        <button id="inventory-tab-merge" class="inventory-tab" type="button">카드 합성</button>
+      </div>
+
+      <div id="inventory-cards-view" class="inventory-tab-view">
+        <div id="inventory-summary" class="inventory-summary"></div>
+        <h3>보유 카드 상세</h3>
+        <div id="inventory-grid" class="inventory-grid"></div>
+      </div>
+
+      <div id="inventory-merge-view" class="inventory-tab-view hidden">
+        <p class="merge-help">동일 종류 + 동일 등급 카드만 합성 가능합니다.</p>
+        <div id="merge-list" class="merge-list"></div>
+      </div>
     </section>
 
     <section class="planet-section">
@@ -253,7 +273,7 @@
         </article>
         <article id="achievement-lucky-astronomer" class="achievement-item">
           <h3>행운의 천문학자</h3>
-          <p>황금 운석 5번 클릭</p>
+          <p>피버 타임 5회 발동</p>
         </article>
       </div>
     </section>
