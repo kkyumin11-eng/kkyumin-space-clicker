@@ -33,6 +33,17 @@ body {
   position: relative;
 }
 
+button,
+.planet-button,
+.levelup-card,
+.corner-toggle,
+.buy-button {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 body::before {
   content: "";
   position: fixed;
@@ -1136,6 +1147,8 @@ body.levelup-open .levelup-overlay {
   pointer-events: none;
   transform: translateY(-10px);
   transition: opacity 0.18s ease, transform 0.18s ease;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .floating-panel.open {
@@ -1273,4 +1286,170 @@ body.levelup-open .levelup-overlay {
   opacity: 0.55;
   border-color: rgba(255, 95, 134, 0.45);
   box-shadow: none;
+}
+
+@media (max-width: 768px) {
+  body {
+    overflow-x: hidden;
+  }
+
+  .app {
+    width: calc(100vw - 16px);
+    margin: 10px auto 22px;
+    gap: 12px;
+  }
+
+  .hud {
+    padding: 14px 12px 76px;
+  }
+
+  .hud h1 {
+    font-size: 1.35rem;
+    margin-bottom: 8px;
+  }
+
+  .level-panel {
+    margin-bottom: 8px;
+  }
+
+  .xp-bar {
+    width: 100%;
+  }
+
+  .resource {
+    font-size: 1.25rem;
+  }
+
+  .dark-resource {
+    font-size: 0.98rem;
+  }
+
+  .planet-section {
+    min-height: 240px;
+  }
+
+  .planet-button {
+    width: clamp(180px, 56vw, 250px);
+  }
+
+  .shop {
+    padding: 14px 12px;
+  }
+
+  .shop-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .buy-button {
+    width: 100%;
+  }
+
+  .levelup-modal {
+    width: min(96vw, 560px);
+    max-height: min(88vh, 760px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .levelup-cards {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .inventory-summary,
+  .inventory-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .floating-panel {
+    left: 8px !important;
+    right: 8px !important;
+    top: 68px !important;
+    width: auto;
+    max-height: calc(100vh - 82px);
+    padding: 14px 12px;
+  }
+
+  .shop-list,
+  .codex-list,
+  .inventory-grid {
+    max-height: min(52vh, 420px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .corner-toggle {
+    width: 52px;
+    min-height: 54px;
+  }
+
+  .achievement-toast {
+    width: calc(100vw - 28px);
+    text-align: center;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .corner-toggle:hover,
+  .buy-button:hover:not(:disabled),
+  .levelup-card:hover,
+  .levelup-card.common:hover,
+  .levelup-card.rare:hover,
+  .levelup-card.epic:hover,
+  .levelup-card.legendary:hover,
+  .planet-button:hover,
+  .rebirth-button:hover:not(:disabled),
+  .reset-progress-button:hover,
+  .confirm-button.cancel:hover,
+  .confirm-button.accept:hover {
+    transform: none;
+    filter: none;
+  }
+
+  .buy-button:hover:not(:disabled) {
+    border-color: rgba(62, 203, 255, 0.75);
+    box-shadow: none;
+  }
+
+  .levelup-card.common:hover {
+    box-shadow: 0 0 14px rgba(225, 225, 225, 0.24);
+  }
+
+  .levelup-card.rare:hover {
+    box-shadow: 0 0 14px rgba(62, 203, 255, 0.3);
+  }
+
+  .levelup-card.epic:hover {
+    box-shadow: 0 0 14px rgba(157, 143, 255, 0.42);
+  }
+
+  .levelup-card.legendary:hover {
+    box-shadow:
+      0 0 14px rgba(255, 214, 117, 0.35),
+      0 0 28px rgba(255, 162, 0, 0.22);
+  }
+
+  .corner-toggle:active,
+  .buy-button:active:not(:disabled),
+  .rebirth-button:active:not(:disabled),
+  .reset-progress-button:active,
+  .confirm-button:active {
+    transform: scale(0.97);
+  }
+
+  .levelup-card:active {
+    transform: scale(0.985);
+  }
+
+  .planet-button:active {
+    transform: scale(0.94);
+    filter: brightness(1.04);
+  }
 }
