@@ -56,35 +56,35 @@ const CARD_LIBRARY = [
     id: "overloadClick",
     name: "과부하 클릭",
     kind: "passive",
-    values: { common: 15, rare: 50, epic: 35, legendary: 80, mythic: 140 },
+    values: { common: 15, rare: 50, epic: 100, legendary: 200, mythic: 400 },
     describe: (value) => `클릭당 스타더스트 전체 획득량 +${value}%`
   },
   {
     id: "spaceAcceleration",
     name: "우주 가속도",
     kind: "passive",
-    values: { common: 10, rare: 25, epic: 35, legendary: 80, mythic: 140 },
+    values: { common: 10, rare: 25, epic: 50, legendary: 100, mythic: 200 },
     describe: (value) => `모든 자동 생산 효율 +${value}%`
   },
   {
     id: "feverChargeReducer",
-    name: "피버 충전 가속",
+    name: "피버 타임 쿨타임 감소",
     kind: "passive",
-    values: { common: 10, rare: 20, epic: 35, legendary: 60, mythic: 99 },
-    describe: (value) => `피버 충전 속도 +${value}%`
+    values: { common: 10, rare: 20, epic: 35, legendary: 50, mythic: 70 },
+    describe: (value) => `피버 발동 필요 클릭 수 -${value}%`
   },
   {
     id: "starBreak",
     name: "스타 브레이크",
     kind: "burst",
-    values: { common: 100, rare: 300, epic: 1000, legendary: 5000, mythic: 13000 },
+    values: { common: 60, rare: 300, epic: 1200, legendary: 3600, mythic: 14400 },
     describe: (value) => `즉시 현재 초당 획득량의 ${value}초 분량 획득`
   },
   {
     id: "xpAmplify",
     name: "경험치 증폭",
     kind: "passive",
-    values: { common: 20, rare: 50, epic: 90, legendary: 150, mythic: 230 },
+    values: { common: 20, rare: 50, epic: 90, legendary: 150, mythic: 250 },
     describe: (value) => `클릭 시 XP 획득량 +${value}%`
   },
   {
@@ -92,11 +92,11 @@ const CARD_LIBRARY = [
     name: "치명적 타격",
     kind: "passive",
     values: {
-      common: { chance: 1.5, multiplier: 20 },
-      rare: { chance: 3, multiplier: 40 },
-      epic: { chance: 5, multiplier: 75 },
-      legendary: { chance: 8, multiplier: 150 },
-      mythic: { chance: 12, multiplier: 300 }
+      common: { chance: 15, multiplier: 10 },
+      rare: { chance: 40, multiplier: 30 },
+      epic: { chance: 80, multiplier: 60 },
+      legendary: { chance: 150, multiplier: 120 },
+      mythic: { chance: 300, multiplier: 250 }
     },
     describe: (value) => `크리티컬 확률 +${value.chance}%, 배율 +${value.multiplier}%`
   },
@@ -111,7 +111,7 @@ const CARD_LIBRARY = [
     id: "meteorEffectBoost",
     name: "피버 공명 증폭",
     kind: "passive",
-    values: { common: 35, rare: 55, epic: 80, legendary: 120, mythic: 180 },
+    values: { common: 30, rare: 60, epic: 100, legendary: 180, mythic: 300 },
     describe: (value) => `피버 타임 배율 +${value}%`
   }
 ];
@@ -788,32 +788,34 @@ function toEquippedCardEffect(cardInstance) {
 }
 
 function calculateFinalStats(equippedCards) {
-  const stats = { ...baseStats };
-
-  equippedCards.forEach((card) => {
+  const stats = equippedCards.reduce(
+    (acc, card) => {
     if (card.type === "overload_click") {
-      stats.clickStardust *= 1 + card.effect;
-    }
-    if (card.type === "space_acceleration") {
-      stats.autoProduction *= 1 + card.effect;
-    }
-    if (card.type === "fever_cooldown") {
-      stats.feverClicks *= 1 - card.effect;
-    }
-    if (card.type === "xp_boost") {
-      stats.xpGain *= 1 + card.effect;
-    }
-    if (card.type === "critical_strike") {
-      stats.critChance *= 1 + card.critChanceEffect;
-      stats.critMultiplier *= 1 + card.critMultEffect;
-    }
-    if (card.type === "fever_extension") {
-      stats.feverDuration *= 1 + card.effect;
-    }
-    if (card.type === "fever_amplification") {
-      stats.feverMultiplier *= 1 + card.effect;
-    }
-  });
+        acc.clickStardust *= 1 + card.effect;
+      }
+      if (card.type === "space_acceleration") {
+        acc.autoProduction *= 1 + card.effect;
+      }
+      if (card.type === "fever_cooldown") {
+        acc.feverClicks *= 1 - card.effect;
+      }
+      if (card.type === "xp_boost") {
+        acc.xpGain *= 1 + card.effect;
+      }
+      if (card.type === "critical_strike") {
+        acc.critChance *= 1 + card.critChanceEffect;
+        acc.critMultiplier *= 1 + card.critMultEffect;
+      }
+      if (card.type === "fever_extension") {
+        acc.feverDuration *= 1 + card.effect;
+      }
+      if (card.type === "fever_amplification") {
+        acc.feverMultiplier *= 1 + card.effect;
+      }
+      return acc;
+    },
+    { ...baseStats }
+  );
 
   stats.feverClicks = Math.max(5, Math.round(stats.feverClicks));
   return stats;
