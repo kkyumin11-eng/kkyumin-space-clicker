@@ -173,8 +173,8 @@ function createEmptyCardBuffs() {
     autoPercentFactor: 1,
     feverChargeFactor: 1,
     xpFactor: 1,
-    criticalChanceFactor: 1,
-    criticalMultiplierFactor: 1,
+    criticalChanceBonus: 0,
+    criticalMultiplierBonus: 0,
     feverDurationFactor: 1,
     feverMultiplierFactor: 1
   };
@@ -778,73 +778,6 @@ function getCardValue(cardId, rarity) {
   return card.values?.[rarity] ?? null;
 }
 
-function toEquippedCardEffect(cardInstance) {
-  const value = getCardValue(cardInstance.cardId, cardInstance.rarity);
-  if (value === null || value === undefined) {
-    return null;
-  }
-  if (cardInstance.cardId === "overloadClick") {
-    return { type: "overload_click", effect: value / 100 };
-  }
-  if (cardInstance.cardId === "spaceAcceleration") {
-    return { type: "space_acceleration", effect: value / 100 };
-  }
-  if (cardInstance.cardId === "feverChargeReducer") {
-    return { type: "fever_cooldown", effect: Math.min(0.95, Math.max(0, value / 100)) };
-  }
-  if (cardInstance.cardId === "xpAmplify") {
-    return { type: "xp_boost", effect: value / 100 };
-  }
-  if (cardInstance.cardId === "criticalStrike") {
-    return {
-      type: "critical_strike",
-      critChanceEffect: value.chance / 100,
-      critMultEffect: value.multiplier / 100
-    };
-  }
-  if (cardInstance.cardId === "feverExtend") {
-    return { type: "fever_extension", effect: value / 100 };
-  }
-  if (cardInstance.cardId === "meteorEffectBoost") {
-    return { type: "fever_amplification", effect: value / 100 };
-  }
-  return null;
-}
-
-function calculateFinalStats(equippedCards) {
-  const stats = equippedCards.reduce(
-    (acc, card) => {
-    if (card.type === "overload_click") {
-        acc.clickStardust *= 1 + card.effect;
-      }
-      if (card.type === "space_acceleration") {
-        acc.autoProduction *= 1 + card.effect;
-      }
-      if (card.type === "fever_cooldown") {
-        acc.feverClicks *= 1 - card.effect;
-      }
-      if (card.type === "xp_boost") {
-        acc.xpGain *= 1 + card.effect;
-      }
-      if (card.type === "critical_strike") {
-        acc.critChance *= 1 + card.critChanceEffect;
-        acc.critMultiplier *= 1 + card.critMultEffect;
-      }
-      if (card.type === "fever_extension") {
-        acc.feverDuration *= 1 + card.effect;
-      }
-      if (card.type === "fever_amplification") {
-        acc.feverMultiplier *= 1 + card.effect;
-      }
-      return acc;
-    },
-    { ...baseStats }
-  );
-
-  stats.feverClicks = Math.max(5, Math.round(stats.feverClicks));
-  return stats;
-}
-
 function isPersistentInventoryCard(cardId) {
   return cardId !== "starBreak";
 }
@@ -871,8 +804,8 @@ function applyPassiveCardToBuffs(cardId, rarity, buffs) {
     return;
   }
   if (cardId === "criticalStrike") {
-    buffs.criticalChanceFactor *= 1 + value.chance / 100;
-    buffs.criticalMultiplierFactor *= 1 + value.multiplier / 100;
+    buffs.criticalChanceBonus += value.chance / 100;
+    buffs.criticalMultiplierBonus += value.multiplier / 100;
     return;
   }
   if (cardId === "feverExtend") {
@@ -887,29 +820,15 @@ function applyPassiveCardToBuffs(cardId, rarity, buffs) {
 function recalculateCardBuffs() {
   state.cardInventory = state.cardInventory.filter((card) => isPersistentInventoryCard(card.cardId));
   cleanupPreservedCardUids();
-  const equippedCards = state.cardInventory.reduce((acc, cardInstance) => {
+  const buffs = createEmptyCardBuffs();
+  state.cardInventory.forEach((cardInstance) => {
     const cardBase = CARD_LIBRARY_BY_ID[cardInstance.cardId];
     if (!cardBase || cardBase.kind !== "passive") {
-      return acc;
+      return;
     }
-    const effect = toEquippedCardEffect(cardInstance);
-    if (effect) {
-      acc.push(effect);
-    }
-    return acc;
-  }, []);
-
-  const finalStats = calculateFinalStats(equippedCards);
-  state.cardBuffs = {
-    clickPercentFactor: finalStats.clickStardust / baseStats.clickStardust,
-    autoPercentFactor: finalStats.autoProduction / baseStats.autoProduction,
-    feverChargeFactor: baseStats.feverClicks / finalStats.feverClicks,
-    xpFactor: finalStats.xpGain / baseStats.xpGain,
-    criticalChanceFactor: finalStats.critChance / baseStats.critChance,
-    criticalMultiplierFactor: finalStats.critMultiplier / baseStats.critMultiplier,
-    feverDurationFactor: finalStats.feverDuration / baseStats.feverDuration,
-    feverMultiplierFactor: finalStats.feverMultiplier / baseStats.feverMultiplier
-  };
+    applyPassiveCardToBuffs(cardInstance.cardId, cardInstance.rarity, buffs);
+  });
+  state.cardBuffs = buffs;
 }
 
 function getNextRarity(rarity) {
@@ -1096,12 +1015,10 @@ function buildStatSnapshot(customBuffs = state.cardBuffs) {
   const shopLayer = getShopMultiplier();
   const clickLayer = customBuffs.clickPercentFactor;
   const autoLayer = customBuffs.autoPercentFactor;
-  const clickCore = getSoftcappedAmount(baseStats.clickStardust * shopLayer * clickLayer);
-  const autoCore = getSoftcappedAmount(baseStats.autoProduction * shopLayer * autoLayer);
   const feverLayer = getFeverMultiplier();
   return {
-    clickGain: (clickCore + state.clickUpgrade.level * CLICK_UPGRADE_FLAT_PER_LEVEL) * feverLayer,
-    perSecond: (autoCore + state.autoMiner.amount * AUTO_MINER_FLAT_PER_LEVEL) * feverLayer,
+    clickGain: getBaseClickGain() * shopLayer * clickLayer * feverLayer,
+    perSecond: getBasePerSecondRate() * shopLayer * autoLayer * feverLayer,
     criticalChance: getCriticalChanceWithBuffs(customBuffs)
   };
 }
@@ -1145,7 +1062,7 @@ function previewCardText(card) {
     const beforeOverflow = getCriticalOverflowMultiplierWithBuffs(state.cardBuffs);
     const afterOverflow = getCriticalOverflowMultiplierWithBuffs(virtualBuffs);
     const beforeMultiplier = getCriticalMultiplier();
-    const baseAfterMultiplier = Math.max(1, getBaseCriticalMultiplier() * virtualBuffs.criticalMultiplierFactor);
+    const baseAfterMultiplier = Math.max(1, getBaseCriticalMultiplier() + (virtualBuffs.criticalMultiplierBonus || 0));
     const afterMultiplier = baseAfterMultiplier * afterOverflow;
     return `크리티컬 확률: ${formatPercent(beforeCrit, 2)} ➜ ${formatPercent(afterCrit, 2)} (+${formatPercent(
       afterCrit - beforeCrit,
@@ -1215,7 +1132,7 @@ function getBaseCriticalChance() {
 
 function getRawCriticalChanceWithBuffs(customBuffs = state.cardBuffs) {
   const baseChance = getBaseCriticalChance();
-  return Math.max(0, baseChance * Math.max(1, customBuffs.criticalChanceFactor || 1));
+  return Math.max(0, baseChance + (customBuffs.criticalChanceBonus || 0));
 }
 
 function getCriticalChanceWithBuffs(customBuffs = state.cardBuffs) {
@@ -1242,7 +1159,7 @@ function getCriticalChance() {
 }
 
 function getCriticalMultiplier() {
-  const baseMultiplier = Math.max(1, getBaseCriticalMultiplier() * state.cardBuffs.criticalMultiplierFactor);
+  const baseMultiplier = Math.max(1, getBaseCriticalMultiplier() + (state.cardBuffs.criticalMultiplierBonus || 0));
   return baseMultiplier * getCriticalOverflowMultiplierWithBuffs(state.cardBuffs);
 }
 
@@ -1250,8 +1167,12 @@ function getFeverDurationMs() {
   return Math.min(MAX_FEVER_DURATION_MS, BASE_FEVER_DURATION_MS * state.cardBuffs.feverDurationFactor);
 }
 
+function getBaseClickGain() {
+  return getSoftcappedAmount(baseStats.clickStardust) + state.clickUpgrade.level * CLICK_UPGRADE_FLAT_PER_LEVEL;
+}
+
 function getBasePerSecondRate() {
-  return baseStats.autoProduction;
+  return getSoftcappedAmount(baseStats.autoProduction) + state.autoMiner.amount * AUTO_MINER_FLAT_PER_LEVEL;
 }
 
 function isFeverActive() {
@@ -1276,18 +1197,13 @@ function getFeverMultiplier() {
 function getPerSecondRate() {
   const shopLayer = getShopMultiplier();
   const cardLayer = getAutoCardBonus();
-  const rawGain = getBasePerSecondRate() * shopLayer * cardLayer;
-  const compressedGain = getSoftcappedAmount(rawGain);
-  return (compressedGain + state.autoMiner.amount * AUTO_MINER_FLAT_PER_LEVEL) * getFeverMultiplier();
+  return getBasePerSecondRate() * shopLayer * cardLayer * getFeverMultiplier();
 }
 
 function getClickGain() {
-  const baseClick = baseStats.clickStardust;
   const shopLayer = getShopMultiplier();
   const cardLayer = getClickCardBonus();
-  const rawGain = baseClick * shopLayer * cardLayer;
-  const compressedGain = getSoftcappedAmount(rawGain);
-  return (compressedGain + state.clickUpgrade.level * CLICK_UPGRADE_FLAT_PER_LEVEL) * getFeverMultiplier();
+  return getBaseClickGain() * shopLayer * cardLayer * getFeverMultiplier();
 }
 
 function getBurstGainFromSeconds(seconds) {
@@ -1295,8 +1211,7 @@ function getBurstGainFromSeconds(seconds) {
   if (burstSeconds <= 0) {
     return 0;
   }
-  const rawGain = getPerSecondRate() * burstSeconds;
-  return getSoftcappedAmount(rawGain);
+  return getPerSecondRate() * burstSeconds;
 }
 
 function getRebirthDarkMatterGain() {
