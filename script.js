@@ -1,7 +1,8 @@
 const SAVE_KEY = "stardust-clicker-save-v2";
-const FEVER_MULTIPLIER = 2;
+const FEVER_MULTIPLIER = 3;
 const BASE_FEVER_DURATION_MS = 10000;
 const FEVER_TRIGGER_CLICKS = 100;
+const DOUBLE_CRIT_OVERFLOW_SCALE = 0.5;
 const METEOR_BASE_COOLDOWN_MS = 45000;
 const METEOR_MIN_COOLDOWN_MS = 10000;
 const METEOR_SPAWN_CHANCE_AFTER_COOLDOWN = 0.05;
@@ -11,9 +12,20 @@ const MAX_BASE_CRITICAL_CHANCE = 0.5;
 const BASE_CRITICAL_MULTIPLIER = 2;
 const MAX_BASE_CRITICAL_MULTIPLIER = 20;
 const REBIRTH_THRESHOLD = 100000;
-const BASE_CLICK_XP = 2;
+const BASE_CLICK_XP = 10;
+const SOFTCAP_MIN_FLOOR = 0.15;
 const LEVELUP_CARD_LOCK_MS = 1200;
 const AUDIO_PREF_KEY = "stardust-clicker-muted";
+const baseStats = {
+  clickStardust: 10,
+  autoProduction: 5,
+  feverClicks: FEVER_TRIGGER_CLICKS,
+  xpGain: BASE_CLICK_XP,
+  critChance: BASE_CRITICAL_CHANCE,
+  critMultiplier: BASE_CRITICAL_MULTIPLIER,
+  feverDuration: BASE_FEVER_DURATION_MS / 1000,
+  feverMultiplier: FEVER_MULTIPLIER
+};
 
 const ACHIEVEMENTS = [
   { id: "cosmicPioneer", name: "우주 개척자" },
@@ -44,17 +56,8 @@ const CARD_LIBRARY = [
     id: "overloadClick",
     name: "과부하 클릭",
     kind: "passive",
-    values: {
-      common: { type: "flat", value: 15 },
-      rare: { type: "flat", value: 50 },
-      epic: { type: "percent", value: 35 },
-      legendary: { type: "percent", value: 80 },
-      mythic: { type: "percent", value: 140 }
-    },
-    describe: (value) =>
-      value.type === "flat"
-        ? `클릭당 스타더스트 기본 획득량 +${value.value}`
-        : `클릭당 스타더스트 전체 획득량 +${value.value}%`
+    values: { common: 15, rare: 50, epic: 35, legendary: 80, mythic: 140 },
+    describe: (value) => `클릭당 스타더스트 전체 획득량 +${value}%`
   },
   {
     id: "spaceAcceleration",
@@ -65,10 +68,10 @@ const CARD_LIBRARY = [
   },
   {
     id: "feverChargeReducer",
-    name: "피버 타임 쿨타임 감소",
+    name: "피버 충전 가속",
     kind: "passive",
     values: { common: 10, rare: 20, epic: 35, legendary: 60, mythic: 99 },
-    describe: (value) => `피버 발동까지 필요한 클릭 수 -${value}회`
+    describe: (value) => `피버 충전 속도 +${value}%`
   },
   {
     id: "starBreak",
@@ -89,13 +92,13 @@ const CARD_LIBRARY = [
     name: "치명적 타격",
     kind: "passive",
     values: {
-      common: { chance: 1.5, multiplier: 0.4 },
-      rare: { chance: 3, multiplier: 0.8 },
-      epic: { chance: 5, multiplier: 1.5 },
-      legendary: { chance: 8, multiplier: 3 },
-      mythic: { chance: 12, multiplier: 6 }
+      common: { chance: 1.5, multiplier: 20 },
+      rare: { chance: 3, multiplier: 40 },
+      epic: { chance: 5, multiplier: 75 },
+      legendary: { chance: 8, multiplier: 150 },
+      mythic: { chance: 12, multiplier: 300 }
     },
-    describe: (value) => `크리티컬 확률 +${value.chance}%, 배율 +${value.multiplier}x`
+    describe: (value) => `크리티컬 확률 +${value.chance}%, 배율 +${value.multiplier}%`
   },
   {
     id: "feverExtend",
@@ -118,7 +121,7 @@ function createInitialState() {
   return {
     stardust: 0,
     darkMatter: 0,
-    clickPower: 1,
+    clickPower: baseStats.clickStardust,
     level: 1,
     xp: 0,
     pendingLevelUps: 0,
@@ -158,15 +161,14 @@ function createInitialState() {
 
 function createEmptyCardBuffs() {
   return {
-    clickFlatBonus: 0,
     clickPercentFactor: 1,
     autoPercentFactor: 1,
-    feverClickReduction: 0,
+    feverChargeFactor: 1,
     xpFactor: 1,
-    criticalChanceBonus: 0,
-    criticalMultiplierBonus: 0,
-    feverDurationPercentBonus: 0,
-    feverMultiplierBonus: 0
+    criticalChanceFactor: 1,
+    criticalMultiplierFactor: 1,
+    feverDurationFactor: 1,
+    feverMultiplierFactor: 1
   };
 }
 
@@ -195,7 +197,7 @@ const elements = {
   statFeverDuration: document.getElementById("stat-fever-duration"),
   statPerSecondMultiplier: document.getElementById("stat-per-second-multiplier"),
   statClickMultiplier: document.getElementById("stat-click-multiplier"),
-  statCardClickFlat: document.getElementById("stat-card-click-flat"),
+  statCardClickMultiplier: document.getElementById("stat-card-click-multiplier"),
   statCardAutoMultiplier: document.getElementById("stat-card-auto-multiplier"),
   statXpGain: document.getElementById("stat-xp-gain"),
   statXpMultiplier: document.getElementById("stat-xp-multiplier"),
@@ -277,24 +279,52 @@ const audioState = {
 };
 
 function formatRounded(value, digits) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return "0";
+  }
   const factor = 10 ** digits;
-  const rounded = Math.round(Number(value) * factor) / factor;
-  return rounded.toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: digits
-  });
+  return Math.round(numeric * factor) / factor;
+}
+
+function formatNumber(value, digits = 2) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return "0";
+  }
+  const sign = numeric < 0 ? "-" : "";
+  const abs = Math.abs(numeric);
+  if (abs < 1000) {
+    return `${sign}${formatRounded(abs, digits)}`;
+  }
+  const units = ["K", "M", "B", "T", "Qa", "Qi", "Sx"];
+  let scaled = abs;
+  let unitIndex = -1;
+  while (scaled >= 1000 && unitIndex < units.length - 1) {
+    scaled /= 1000;
+    unitIndex += 1;
+  }
+  return `${sign}${formatRounded(scaled, digits)}${units[unitIndex]}`;
 }
 
 function formatStardust(value) {
-  return formatRounded(value, 1);
+  return formatNumber(value, 2);
 }
 
 function formatRate(value) {
-  return formatRounded(value, 3);
+  return formatNumber(value, 3);
 }
 
 function formatPercent(value, digits = 1) {
-  return `${formatRounded(value * 100, digits)}%`;
+  return `${formatNumber(value * 100, digits)}%`;
+}
+
+function getSoftcappedAmount(rawAmount) {
+  const numeric = Math.max(0, Number(rawAmount) || 0);
+  if (numeric <= 1) {
+    return numeric;
+  }
+  return Math.max(SOFTCAP_MIN_FLOOR, Math.sqrt(numeric));
 }
 
 function updateAudioToggleUi() {
@@ -724,6 +754,71 @@ function getCardValue(cardId, rarity) {
   return card.values?.[rarity] ?? null;
 }
 
+function toEquippedCardEffect(cardInstance) {
+  const value = getCardValue(cardInstance.cardId, cardInstance.rarity);
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (cardInstance.cardId === "overloadClick") {
+    return { type: "overload_click", effect: value / 100 };
+  }
+  if (cardInstance.cardId === "spaceAcceleration") {
+    return { type: "space_acceleration", effect: value / 100 };
+  }
+  if (cardInstance.cardId === "feverChargeReducer") {
+    return { type: "fever_cooldown", effect: Math.min(0.95, Math.max(0, value / 100)) };
+  }
+  if (cardInstance.cardId === "xpAmplify") {
+    return { type: "xp_boost", effect: value / 100 };
+  }
+  if (cardInstance.cardId === "criticalStrike") {
+    return {
+      type: "critical_strike",
+      critChanceEffect: value.chance / 100,
+      critMultEffect: value.multiplier / 100
+    };
+  }
+  if (cardInstance.cardId === "feverExtend") {
+    return { type: "fever_extension", effect: value / 100 };
+  }
+  if (cardInstance.cardId === "meteorEffectBoost") {
+    return { type: "fever_amplification", effect: value / 100 };
+  }
+  return null;
+}
+
+function calculateFinalStats(equippedCards) {
+  const stats = { ...baseStats };
+
+  equippedCards.forEach((card) => {
+    if (card.type === "overload_click") {
+      stats.clickStardust *= 1 + card.effect;
+    }
+    if (card.type === "space_acceleration") {
+      stats.autoProduction *= 1 + card.effect;
+    }
+    if (card.type === "fever_cooldown") {
+      stats.feverClicks *= 1 - card.effect;
+    }
+    if (card.type === "xp_boost") {
+      stats.xpGain *= 1 + card.effect;
+    }
+    if (card.type === "critical_strike") {
+      stats.critChance *= 1 + card.critChanceEffect;
+      stats.critMultiplier *= 1 + card.critMultEffect;
+    }
+    if (card.type === "fever_extension") {
+      stats.feverDuration *= 1 + card.effect;
+    }
+    if (card.type === "fever_amplification") {
+      stats.feverMultiplier *= 1 + card.effect;
+    }
+  });
+
+  stats.feverClicks = Math.max(5, Math.round(stats.feverClicks));
+  return stats;
+}
+
 function isPersistentInventoryCard(cardId) {
   return cardId !== "starBreak";
 }
@@ -734,11 +829,7 @@ function applyPassiveCardToBuffs(cardId, rarity, buffs) {
     return;
   }
   if (cardId === "overloadClick") {
-    if (value.type === "flat") {
-      buffs.clickFlatBonus += value.value;
-    } else {
-      buffs.clickPercentFactor *= 1 + value.value / 100;
-    }
+    buffs.clickPercentFactor *= 1 + value / 100;
     return;
   }
   if (cardId === "spaceAcceleration") {
@@ -746,7 +837,7 @@ function applyPassiveCardToBuffs(cardId, rarity, buffs) {
     return;
   }
   if (cardId === "feverChargeReducer") {
-    buffs.feverClickReduction += value;
+    buffs.feverChargeFactor *= 1 + value / 100;
     return;
   }
   if (cardId === "xpAmplify") {
@@ -754,31 +845,45 @@ function applyPassiveCardToBuffs(cardId, rarity, buffs) {
     return;
   }
   if (cardId === "criticalStrike") {
-    buffs.criticalChanceBonus += value.chance / 100;
-    buffs.criticalMultiplierBonus += value.multiplier;
+    buffs.criticalChanceFactor *= 1 + value.chance / 100;
+    buffs.criticalMultiplierFactor *= 1 + value.multiplier / 100;
     return;
   }
   if (cardId === "feverExtend") {
-    buffs.feverDurationPercentBonus += value / 100;
+    buffs.feverDurationFactor *= 1 + value / 100;
     return;
   }
   if (cardId === "meteorEffectBoost") {
-    buffs.feverMultiplierBonus += value / 100;
+    buffs.feverMultiplierFactor *= 1 + value / 100;
   }
 }
 
 function recalculateCardBuffs() {
   state.cardInventory = state.cardInventory.filter((card) => isPersistentInventoryCard(card.cardId));
   cleanupPreservedCardUids();
-  const buffs = createEmptyCardBuffs();
-  state.cardInventory.forEach((cardInstance) => {
+  const equippedCards = state.cardInventory.reduce((acc, cardInstance) => {
     const cardBase = CARD_LIBRARY_BY_ID[cardInstance.cardId];
     if (!cardBase || cardBase.kind !== "passive") {
-      return;
+      return acc;
     }
-    applyPassiveCardToBuffs(cardInstance.cardId, cardInstance.rarity, buffs);
-  });
-  state.cardBuffs = buffs;
+    const effect = toEquippedCardEffect(cardInstance);
+    if (effect) {
+      acc.push(effect);
+    }
+    return acc;
+  }, []);
+
+  const finalStats = calculateFinalStats(equippedCards);
+  state.cardBuffs = {
+    clickPercentFactor: finalStats.clickStardust / baseStats.clickStardust,
+    autoPercentFactor: finalStats.autoProduction / baseStats.autoProduction,
+    feverChargeFactor: baseStats.feverClicks / finalStats.feverClicks,
+    xpFactor: finalStats.xpGain / baseStats.xpGain,
+    criticalChanceFactor: finalStats.critChance / baseStats.critChance,
+    criticalMultiplierFactor: finalStats.critMultiplier / baseStats.critMultiplier,
+    feverDurationFactor: finalStats.feverDuration / baseStats.feverDuration,
+    feverMultiplierFactor: finalStats.feverMultiplier / baseStats.feverMultiplier
+  };
 }
 
 function getNextRarity(rarity) {
@@ -915,8 +1020,8 @@ function renderInventoryUi() {
   });
 
   elements.inventorySummary.innerHTML = `
-    <article class="summary-tile"><strong>총 보유 카드</strong>${state.cardInventory.length.toLocaleString()}장</article>
-    <article class="summary-tile"><strong>영구 패시브 카드</strong>${passiveTotal.toLocaleString()}장</article>
+    <article class="summary-tile"><strong>총 보유 카드</strong>${formatNumber(state.cardInventory.length, 0)}장</article>
+    <article class="summary-tile"><strong>영구 패시브 카드</strong>${formatNumber(passiveTotal, 0)}장</article>
     <article class="summary-tile"><strong>일반/희귀/영웅/전설/신화</strong>${rarityCountMap.common}/${rarityCountMap.rare}/${rarityCountMap.epic}/${rarityCountMap.legendary}/${rarityCountMap.mythic}</article>
     <article class="summary-tile"><strong>일시 효과 카드</strong>${burstTotal}장</article>
   `;
@@ -962,11 +1067,11 @@ function renderInventoryUi() {
 }
 
 function buildStatSnapshot(customBuffs = state.cardBuffs) {
-  const shopLayer = 1 + getShopPercentBonus();
+  const shopLayer = getShopMultiplier();
   const clickLayer = customBuffs.clickPercentFactor;
   const autoLayer = customBuffs.autoPercentFactor;
   return {
-    clickGain: (state.clickPower + customBuffs.clickFlatBonus) * shopLayer * clickLayer * getFeverMultiplier(),
+    clickGain: state.clickPower * shopLayer * clickLayer * getFeverMultiplier(),
     perSecond: getBasePerSecondRate() * shopLayer * autoLayer * getFeverMultiplier(),
     criticalChance: getCriticalChanceWithBuffs(customBuffs)
   };
@@ -985,7 +1090,7 @@ function previewCardText(card) {
   const before = buildStatSnapshot();
   if (card.baseId === "starBreak") {
     const value = getCardValue(card.baseId, card.rarityClass);
-    const burstGain = getPerSecondRate() * value;
+    const burstGain = getBurstGainFromSeconds(value);
     return `획득량 미리보기: 스타더스트 +${formatRate(burstGain)} (즉시 지급)${evolutionSuffix}`;
   }
   const virtualBuffs = { ...state.cardBuffs };
@@ -1010,7 +1115,7 @@ function previewCardText(card) {
     const beforeOverflow = getCriticalOverflowMultiplierWithBuffs(state.cardBuffs);
     const afterOverflow = getCriticalOverflowMultiplierWithBuffs(virtualBuffs);
     const beforeMultiplier = getCriticalMultiplier();
-    const baseAfterMultiplier = Math.max(1, getBaseCriticalMultiplier() + virtualBuffs.criticalMultiplierBonus);
+    const baseAfterMultiplier = Math.max(1, getBaseCriticalMultiplier() * virtualBuffs.criticalMultiplierFactor);
     const afterMultiplier = baseAfterMultiplier * afterOverflow;
     return `크리티컬 확률: ${formatPercent(beforeCrit, 2)} ➜ ${formatPercent(afterCrit, 2)} (+${formatPercent(
       afterCrit - beforeCrit,
@@ -1028,16 +1133,14 @@ function previewCardText(card) {
   }
   if (card.baseId === "feverExtend") {
     const beforeDuration = Math.round(getFeverDurationMs() / 1000);
-    const afterDuration = Math.round(
-      Math.min(MAX_FEVER_DURATION_MS, BASE_FEVER_DURATION_MS * (1 + virtualBuffs.feverDurationPercentBonus)) / 1000
-    );
-    const beforePercent = formatRounded(state.cardBuffs.feverDurationPercentBonus * 100, 0);
-    const afterPercent = formatRounded(virtualBuffs.feverDurationPercentBonus * 100, 0);
+    const afterDuration = Math.round(Math.min(MAX_FEVER_DURATION_MS, BASE_FEVER_DURATION_MS * virtualBuffs.feverDurationFactor) / 1000);
+    const beforePercent = formatNumber((state.cardBuffs.feverDurationFactor - 1) * 100, 0);
+    const afterPercent = formatNumber((virtualBuffs.feverDurationFactor - 1) * 100, 0);
     return `피버 시간: ${beforeDuration}초(+${beforePercent}%) ➜ ${afterDuration}초(+${afterPercent}%)${evolutionSuffix}`;
   }
   if (card.baseId === "meteorEffectBoost") {
-    const beforeFever = FEVER_MULTIPLIER * (1 + state.cardBuffs.feverMultiplierBonus);
-    const afterFever = FEVER_MULTIPLIER * (1 + virtualBuffs.feverMultiplierBonus);
+    const beforeFever = FEVER_MULTIPLIER * state.cardBuffs.feverMultiplierFactor;
+    const afterFever = FEVER_MULTIPLIER * virtualBuffs.feverMultiplierFactor;
     return `피버 배율: x${formatRate(beforeFever)} ➜ x${formatRate(afterFever)}${evolutionSuffix}`;
   }
   return `클릭 생산량: ${formatDelta(before.clickGain, after.clickGain, 1)} / 자동 생산량: ${formatDelta(
@@ -1048,15 +1151,15 @@ function previewCardText(card) {
 }
 
 function getXpRequiredForLevel(level) {
-  return Math.floor(100 * Math.pow(1.15, level));
+  return Math.max(100, Math.floor(100 * Math.pow(Math.max(1, level), 2.5)));
 }
 
 function getClickXpGain() {
   return BASE_CLICK_XP * state.cardBuffs.xpFactor;
 }
 
-function getPermanentGainBonus() {
-  return state.darkMatterShop.distortion.level * 0.5;
+function getPermanentGainMultiplier() {
+  return Math.pow(1.5, state.darkMatterShop.distortion.level);
 }
 
 function getClickCardBonus() {
@@ -1068,7 +1171,7 @@ function getAutoCardBonus() {
 }
 
 function getFeverTriggerClicksRequired(customBuffs = state.cardBuffs) {
-  return Math.max(1, FEVER_TRIGGER_CLICKS - customBuffs.feverClickReduction);
+  return Math.max(5, Math.ceil(FEVER_TRIGGER_CLICKS / customBuffs.feverChargeFactor));
 }
 
 function getMeteorCooldownMs() {
@@ -1080,9 +1183,8 @@ function getBaseCriticalChance() {
 }
 
 function getRawCriticalChanceWithBuffs(customBuffs = state.cardBuffs) {
-  const additiveBaseChance = getBaseCriticalChance();
-  const additiveCardBonus = Math.max(0, customBuffs.criticalChanceBonus || 0);
-  return Math.max(0, additiveBaseChance + additiveCardBonus);
+  const baseChance = getBaseCriticalChance();
+  return Math.max(0, baseChance * Math.max(1, customBuffs.criticalChanceFactor || 1));
 }
 
 function getCriticalChanceWithBuffs(customBuffs = state.cardBuffs) {
@@ -1091,7 +1193,10 @@ function getCriticalChanceWithBuffs(customBuffs = state.cardBuffs) {
 
 function getCriticalOverflowMultiplierWithBuffs(customBuffs = state.cardBuffs) {
   const rawCriticalChance = getRawCriticalChanceWithBuffs(customBuffs);
-  return rawCriticalChance > 1 ? rawCriticalChance : 1;
+  if (rawCriticalChance <= 1) {
+    return 1;
+  }
+  return 1 + (rawCriticalChance - 1) * DOUBLE_CRIT_OVERFLOW_SCALE;
 }
 
 function getBaseCriticalMultiplier() {
@@ -1106,16 +1211,17 @@ function getCriticalChance() {
 }
 
 function getCriticalMultiplier() {
-  const baseMultiplier = Math.max(1, getBaseCriticalMultiplier() + state.cardBuffs.criticalMultiplierBonus);
+  const baseMultiplier = Math.max(1, getBaseCriticalMultiplier() * state.cardBuffs.criticalMultiplierFactor);
   return baseMultiplier * getCriticalOverflowMultiplierWithBuffs(state.cardBuffs);
 }
 
 function getFeverDurationMs() {
-  return Math.min(MAX_FEVER_DURATION_MS, BASE_FEVER_DURATION_MS * (1 + state.cardBuffs.feverDurationPercentBonus));
+  return Math.min(MAX_FEVER_DURATION_MS, BASE_FEVER_DURATION_MS * state.cardBuffs.feverDurationFactor);
 }
 
 function getBasePerSecondRate() {
   return (
+    baseStats.autoProduction +
     state.autoMiner.amount * state.autoMiner.perSecond +
     state.quantumProbe.amount * state.quantumProbe.perSecond
   );
@@ -1129,11 +1235,11 @@ function getFeverBonus() {
   if (!isFeverActive()) {
     return 0;
   }
-  return FEVER_MULTIPLIER * (1 + state.cardBuffs.feverMultiplierBonus) - 1;
+  return FEVER_MULTIPLIER * state.cardBuffs.feverMultiplierFactor - 1;
 }
 
-function getShopPercentBonus() {
-  return getPermanentGainBonus();
+function getShopMultiplier() {
+  return getPermanentGainMultiplier();
 }
 
 function getFeverMultiplier() {
@@ -1141,16 +1247,27 @@ function getFeverMultiplier() {
 }
 
 function getPerSecondRate() {
-  const shopLayer = 1 + getShopPercentBonus();
+  const shopLayer = getShopMultiplier();
   const cardLayer = getAutoCardBonus();
-  return getBasePerSecondRate() * shopLayer * cardLayer * getFeverMultiplier();
+  const rawGain = getBasePerSecondRate() * shopLayer * cardLayer * getFeverMultiplier();
+  return getSoftcappedAmount(rawGain);
 }
 
 function getClickGain() {
-  const baseClick = state.clickPower + state.cardBuffs.clickFlatBonus;
-  const shopLayer = 1 + getShopPercentBonus();
+  const baseClick = state.clickPower;
+  const shopLayer = getShopMultiplier();
   const cardLayer = getClickCardBonus();
-  return baseClick * shopLayer * cardLayer * getFeverMultiplier();
+  const rawGain = baseClick * shopLayer * cardLayer * getFeverMultiplier();
+  return getSoftcappedAmount(rawGain);
+}
+
+function getBurstGainFromSeconds(seconds) {
+  const burstSeconds = Math.max(0, Number(seconds) || 0);
+  if (burstSeconds <= 0) {
+    return 0;
+  }
+  const rawGain = getPerSecondRate() * burstSeconds;
+  return getSoftcappedAmount(rawGain);
 }
 
 function getRebirthDarkMatterGain() {
@@ -1231,7 +1348,7 @@ function loadState() {
 
     state.stardust = Math.max(0, Number(parsed.stardust) || 0);
     state.darkMatter = Math.max(0, Math.floor(Number(parsed.darkMatter) || 0));
-    state.clickPower = Math.max(1, Number(parsed.clickPower) || 1);
+    state.clickPower = Math.max(baseStats.clickStardust, Number(parsed.clickPower) || baseStats.clickStardust);
     state.level = Math.max(1, Math.floor(Number(parsed.level) || 1));
     state.xp = Math.max(0, Number(parsed.xp) || 0);
     state.clicksTowardFever = Math.max(0, Math.floor(Number(parsed.clicksTowardFever) || 0));
@@ -1310,7 +1427,7 @@ function loadState() {
 function updateFeverLabel() {
   if (isFeverActive()) {
     const remainSec = Math.ceil((state.feverUntil - Date.now()) / 1000);
-    const feverMultiplier = FEVER_MULTIPLIER * (1 + state.cardBuffs.feverMultiplierBonus);
+    const feverMultiplier = FEVER_MULTIPLIER * state.cardBuffs.feverMultiplierFactor;
     elements.feverStatus.textContent = `피버 타임 x${formatRate(feverMultiplier)} (${remainSec}초 남음)`;
     return;
   }
@@ -1430,7 +1547,8 @@ function buildLevelupCard(baseCard, rarity, hasEmbeddedEvolution = false) {
 
 function getRandomLevelupCards(count) {
   const rarity = rollCardRarity();
-  const pool = [...CARD_LIBRARY];
+  const feverClicksAtFloor = getFeverTriggerClicksRequired() <= 5;
+  const pool = CARD_LIBRARY.filter((card) => !(feverClicksAtFloor && card.id === "feverChargeReducer"));
   const selected = [];
   while (selected.length < count && pool.length > 0) {
     const idx = Math.floor(Math.random() * pool.length);
@@ -1559,7 +1677,7 @@ function applyLevelupCardSelection(card) {
   }
   if (baseCard?.kind === "burst") {
     const burstValue = getCardValue(card.baseId, card.rarityClass);
-    state.stardust += getPerSecondRate() * burstValue;
+    state.stardust += getBurstGainFromSeconds(burstValue);
     notice = `즉시 ${formatRounded(burstValue, 0)}초 분량 보너스 지급 (소모형 카드)`;
   }
 
@@ -1674,9 +1792,9 @@ function gainXp(amount) {
 function updateLevelPanel() {
   const requiredXp = getXpRequiredForLevel(state.level);
   const percent = Math.max(0, Math.min(100, (state.xp / requiredXp) * 100));
-  elements.levelValue.textContent = state.level.toLocaleString();
+  elements.levelValue.textContent = formatNumber(state.level, 0);
   elements.xpCurrent.textContent = formatStardust(state.xp);
-  elements.xpRequired.textContent = requiredXp.toLocaleString();
+  elements.xpRequired.textContent = formatNumber(requiredXp, 0);
   elements.xpFill.style.width = `${percent}%`;
 }
 
@@ -1688,24 +1806,24 @@ function updateView() {
   const criticalChance = getCriticalChance();
   const criticalMultiplier = getCriticalMultiplier();
   const clickXpGain = getClickXpGain();
-  const perSecondMultiplier = (1 + getShopPercentBonus()) * getAutoCardBonus() * getFeverMultiplier();
-  const clickMultiplier = (1 + getShopPercentBonus()) * getClickCardBonus() * getFeverMultiplier();
+  const perSecondMultiplier = getShopMultiplier() * getAutoCardBonus() * getFeverMultiplier();
+  const clickMultiplier = getShopMultiplier() * getClickCardBonus() * getFeverMultiplier();
 
   elements.stardust.textContent = formatStardust(state.stardust);
-  elements.darkMatter.textContent = state.darkMatter.toLocaleString();
+  elements.darkMatter.textContent = formatNumber(state.darkMatter, 0);
   elements.perSecond.textContent = formatRate(getPerSecondRate());
   elements.clickPower.textContent = formatRate(getClickGain());
 
-  elements.autoMinerTitle.textContent = `자동 채굴기 | +${state.autoMiner.amount.toLocaleString()}`;
-  elements.autoMinerCost.textContent = state.autoMiner.price.toLocaleString();
-  elements.quantumProbeTitle.textContent = `양자 탐사선 | +${state.quantumProbe.amount.toLocaleString()}`;
-  elements.quantumProbeCost.textContent = state.quantumProbe.price.toLocaleString();
-  elements.milkyDriveTitle.textContent = `은하수 드라이브 | +${state.milkyDrive.amount.toLocaleString()}`;
-  elements.milkyDriveCost.textContent = state.milkyDrive.price.toLocaleString();
-  elements.criticalChanceShopCost.textContent = state.criticalShop.chance.price.toLocaleString();
-  elements.criticalChanceShopLevel.textContent = state.criticalShop.chance.level.toLocaleString();
-  elements.criticalMultiplierShopCost.textContent = state.criticalShop.multiplier.price.toLocaleString();
-  elements.criticalMultiplierShopLevel.textContent = state.criticalShop.multiplier.level.toLocaleString();
+  elements.autoMinerTitle.textContent = `자동 채굴기 | +${formatNumber(state.autoMiner.amount, 0)}`;
+  elements.autoMinerCost.textContent = formatNumber(state.autoMiner.price, 0);
+  elements.quantumProbeTitle.textContent = `양자 탐사선 | +${formatNumber(state.quantumProbe.amount, 0)}`;
+  elements.quantumProbeCost.textContent = formatNumber(state.quantumProbe.price, 0);
+  elements.milkyDriveTitle.textContent = `은하수 드라이브 | +${formatNumber(state.milkyDrive.amount, 0)}`;
+  elements.milkyDriveCost.textContent = formatNumber(state.milkyDrive.price, 0);
+  elements.criticalChanceShopCost.textContent = formatNumber(state.criticalShop.chance.price, 0);
+  elements.criticalChanceShopLevel.textContent = formatNumber(state.criticalShop.chance.level, 0);
+  elements.criticalMultiplierShopCost.textContent = formatNumber(state.criticalShop.multiplier.price, 0);
+  elements.criticalMultiplierShopLevel.textContent = formatNumber(state.criticalShop.multiplier.level, 0);
 
   elements.buyAutoMiner.disabled = state.stardust < state.autoMiner.price;
   elements.buyQuantumProbe.disabled = state.stardust < state.quantumProbe.price;
@@ -1716,10 +1834,10 @@ function updateView() {
     state.stardust < state.criticalShop.multiplier.price ||
     getBaseCriticalMultiplier() >= MAX_BASE_CRITICAL_MULTIPLIER;
 
-  elements.distortionCost.textContent = state.darkMatterShop.distortion.price.toLocaleString();
-  elements.distortionLevel.textContent = state.darkMatterShop.distortion.level.toLocaleString();
-  elements.singularityCost.textContent = state.darkMatterShop.singularity.price.toLocaleString();
-  elements.singularityLevel.textContent = state.darkMatterShop.singularity.level.toLocaleString();
+  elements.distortionCost.textContent = formatNumber(state.darkMatterShop.distortion.price, 0);
+  elements.distortionLevel.textContent = formatNumber(state.darkMatterShop.distortion.level, 0);
+  elements.singularityCost.textContent = formatNumber(state.darkMatterShop.singularity.price, 0);
+  elements.singularityLevel.textContent = formatNumber(state.darkMatterShop.singularity.level, 0);
 
   elements.buyDistortion.disabled = state.darkMatter < state.darkMatterShop.distortion.price;
   elements.buySingularity.disabled = state.darkMatter < state.darkMatterShop.singularity.price;
@@ -1729,13 +1847,13 @@ function updateView() {
   elements.statCriticalChance.textContent = formatPercent(criticalChance, 2);
   elements.statCriticalMultiplier.textContent = `x${formatRate(criticalMultiplier)}`;
   elements.statMeteorChance.textContent = `${clicksUntilFever}회 (${formatPercent(feverProgress, 1)})`;
-  elements.statFeverDuration.textContent = `${Math.round(getFeverDurationMs() / 1000)}초 (+${formatRounded(
-    state.cardBuffs.feverDurationPercentBonus * 100,
+  elements.statFeverDuration.textContent = `${Math.round(getFeverDurationMs() / 1000)}초 (+${formatNumber(
+    (state.cardBuffs.feverDurationFactor - 1) * 100,
     0
   )}%)`;
   elements.statPerSecondMultiplier.textContent = `x${formatRate(perSecondMultiplier)}`;
   elements.statClickMultiplier.textContent = `x${formatRate(clickMultiplier)}`;
-  elements.statCardClickFlat.textContent = `+${formatRate(state.cardBuffs.clickFlatBonus)}`;
+  elements.statCardClickMultiplier.textContent = `x${formatRate(state.cardBuffs.clickPercentFactor)}`;
   elements.statCardAutoMultiplier.textContent = `x${formatRate(state.cardBuffs.autoPercentFactor)}`;
   elements.statXpGain.textContent = formatRate(clickXpGain);
   elements.statXpMultiplier.textContent = `x${formatRate(state.cardBuffs.xpFactor)}`;
@@ -1854,7 +1972,7 @@ function runRebirth() {
   state.darkMatter += gain;
 
   state.stardust = 0;
-  state.clickPower = 1;
+  state.clickPower = baseStats.clickStardust;
   state.level = 1;
   state.xp = 0;
   state.clicksTowardFever = 0;
@@ -1865,6 +1983,10 @@ function runRebirth() {
   state.quantumProbe.price = 500;
   state.milkyDrive.amount = 0;
   state.milkyDrive.price = 200;
+  state.criticalShop.chance.level = 0;
+  state.criticalShop.chance.price = 2000;
+  state.criticalShop.multiplier.level = 0;
+  state.criticalShop.multiplier.price = 3000;
   state.feverUntil = 0;
   state.cardInventory = preservedCards;
   state.preservedCardUids = preservedCards.map((card) => card.uid);
