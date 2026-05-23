@@ -55,6 +55,26 @@
       </div>
     </div>
   </div>
+  <div id="rebirth-confirm-overlay" class="confirm-overlay" aria-hidden="true">
+    <div
+      class="confirm-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="rebirth-confirm-title"
+      aria-describedby="rebirth-confirm-description"
+    >
+      <h2 id="rebirth-confirm-title">블랙홀 환생 확인</h2>
+      <p id="rebirth-confirm-description">
+        레벨/XP/보유 카드가 초기화됩니다.<br />
+        <strong>현재 카드 저장소에 있는 카드를 제외하고 모든 카드가 삭제됩니다.</strong><br />
+        환생 시 Dark Matter를 획득합니다.
+      </p>
+      <div class="confirm-actions">
+        <button id="rebirth-confirm-cancel" class="confirm-button cancel" type="button">취소</button>
+        <button id="rebirth-confirm-accept" class="confirm-button accept" type="button">환생 진행</button>
+      </div>
+    </div>
+  </div>
   <main class="app">
     <header class="hud">
       <button
@@ -150,7 +170,7 @@
     <section id="inventory-panel" class="shop inventory-panel floating-panel">
       <h2>우주 개척 도감</h2>
       <section class="preservation-section">
-        <h3>우주 보존 저장소 (환생 보존 5슬롯)</h3>
+        <h3 id="preservation-title">우주 보존 저장소 (환생 보존 1슬롯)</h3>
         <p class="preservation-help">보유 카드 클릭으로 지정/해제. 블랙홀 환생 후에도 지정 카드만 유지됩니다.</p>
         <div id="preservation-slots" class="preservation-slots"></div>
       </section>
@@ -167,8 +187,10 @@
       </div>
 
       <div id="inventory-merge-view" class="inventory-tab-view hidden">
-        <p class="merge-help">동일 종류 + 동일 등급 카드만 합성 가능합니다.</p>
+        <p class="merge-help">동일 종류 + 동일 등급 카드만 합성 가능합니다. 등급 색상: <span class="rarity-label common">일반</span> <span class="rarity-label rare">희귀</span> <span class="rarity-label epic">영웅</span> <span class="rarity-label legendary">전설</span> <span class="rarity-label mythic">신화</span></p>
+        <button id="bulk-merge-button" class="buy-button" type="button">일괄 합성</button>
         <div id="merge-list" class="merge-list"></div>
+        <div id="evolution-log" class="merge-list"></div>
       </div>
     </section>
 
@@ -221,8 +243,9 @@
         <article class="shop-item">
           <div>
             <h3>안테나 주파수 동기화</h3>
-            <p>기본 크리티컬 확률 +1% (최대 50%)</p>
+            <p>기본 크리티컬 확률 +0.5% (최대 50%)</p>
             <p class="cost">가격: <span id="critical-chance-shop-cost">2,000</span> | 보유: <span id="critical-chance-shop-level">0</span></p>
+            <p class="cost" id="critical-chance-bulk-cost">+5 비용 0 | +10 비용 0 | 최대 비용 0 (0강)</p>
           </div>
           <button id="buy-critical-chance-shop" class="buy-button">강화</button>
         </article>
@@ -230,8 +253,9 @@
         <article class="shop-item">
           <div>
             <h3>초고밀도 레이저 포인터</h3>
-            <p>기본 크리티컬 배수 +10% (최대 2000%)</p>
+            <p>기본 크리티컬 배수 +10% (상한 없음)</p>
             <p class="cost">가격: <span id="critical-multiplier-shop-cost">3,000</span> | 보유: <span id="critical-multiplier-shop-level">0</span></p>
+            <p class="cost" id="critical-multiplier-bulk-cost">+5 비용 0 | +10 비용 0 | 최대 비용 0 (0강)</p>
           </div>
           <button id="buy-critical-multiplier-shop" class="buy-button">강화</button>
         </article>
@@ -261,6 +285,46 @@
             </p>
           </div>
           <button id="buy-singularity" class="buy-button">연구</button>
+        </article>
+        <article class="shop-item">
+          <div>
+            <h3>보존 슬롯 확장</h3>
+            <p>우주 보존 저장소 슬롯 +1 (최대 10회 확장)</p>
+            <p class="cost">
+              가격: <span id="preservation-slot-upgrade-cost">10</span> DM | 보유: <span id="preservation-slot-upgrade-level">0</span>/10
+            </p>
+          </div>
+          <button id="buy-preservation-slot-upgrade" class="buy-button">연구</button>
+        </article>
+        <article class="shop-item">
+          <div>
+            <h3>웜홀 가속 엔진</h3>
+            <p>기본 자동 생산 효율 영구 +15% (복리)</p>
+            <p class="cost">
+              가격: <span id="wormhole-engine-cost">5</span> DM | 보유: <span id="wormhole-engine-level">0</span>
+            </p>
+          </div>
+          <button id="buy-wormhole-engine" class="buy-button">연구</button>
+        </article>
+        <article class="shop-item">
+          <div>
+            <h3>스타더스트 중력 장치</h3>
+            <p>최종 스타더스트 획득량 영구 +10% (복리)</p>
+            <p class="cost">
+              가격: <span id="stardust-gravity-cost">7</span> DM | 보유: <span id="stardust-gravity-level">0</span>
+            </p>
+          </div>
+          <button id="buy-stardust-gravity" class="buy-button">연구</button>
+        </article>
+        <article class="shop-item">
+          <div>
+            <h3>피버 하이웨이</h3>
+            <p>피버 지속 +1초, 피버 중 모든 획득량 +20%</p>
+            <p class="cost">
+              가격: <span id="fever-highway-cost">9</span> DM | 보유: <span id="fever-highway-level">0</span>
+            </p>
+          </div>
+          <button id="buy-fever-highway" class="buy-button">연구</button>
         </article>
       </div>
     </section>

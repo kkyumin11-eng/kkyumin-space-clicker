@@ -10,12 +10,14 @@ const MAX_FEVER_DURATION_MS = 90000;
 const BASE_CRITICAL_CHANCE = 0.05;
 const MAX_BASE_CRITICAL_CHANCE = 0.5;
 const BASE_CRITICAL_MULTIPLIER = 2;
-const MAX_BASE_CRITICAL_MULTIPLIER = 20;
 const REBIRTH_THRESHOLD = 100000;
 const BASE_CLICK_XP = 10;
 const SOFTCAP_MIN_FLOOR = 0.15;
 const LEVELUP_CARD_LOCK_MS = 1200;
 const AUDIO_PREF_KEY = "stardust-clicker-muted";
+const BASE_PRESERVATION_SLOTS = 1;
+const MAX_PRESERVATION_SLOT_UPGRADES = 10;
+const MAX_EVOLUTION_LOGS = 14;
 const baseStats = {
   clickStardust: 10,
   autoProduction: 0,
@@ -51,12 +53,11 @@ const RARITIES = [
 ];
 const RARITY_ORDER = ["common", "rare", "epic", "legendary", "mythic"];
 const EMBEDDED_EVOLUTION_CHANCE = 0.12;
-const PRESERVATION_SLOT_LIMIT = 5;
 const MERGE_REQUIREMENTS = {
   common: 2,
-  rare: 2,
-  epic: 3,
-  legendary: 3
+  rare: 3,
+  epic: 4,
+  legendary: 5
 };
 
 const CARD_LIBRARY = [
@@ -147,11 +148,16 @@ function createInitialState() {
     meteorCooldownUntil: 0,
     darkMatterShop: {
       distortion: { price: 1, level: 0 },
-      singularity: { price: 3, level: 0 }
+      singularity: { price: 3, level: 0 },
+      preservationSlots: { price: 10, level: 0 },
+      wormholeEngine: { price: 5, level: 0 },
+      stardustGravity: { price: 7, level: 0 },
+      feverHighway: { price: 9, level: 0 }
     },
     cardBuffs: createEmptyCardBuffs(),
     cardInventory: [],
     preservedCardUids: [],
+    evolutionLogs: [],
     nextCardUid: 1,
     stats: {
       totalClicks: 0,
@@ -195,6 +201,9 @@ const elements = {
   resetConfirmOverlay: document.getElementById("reset-confirm-overlay"),
   resetConfirmCancel: document.getElementById("reset-confirm-cancel"),
   resetConfirmAccept: document.getElementById("reset-confirm-accept"),
+  rebirthConfirmOverlay: document.getElementById("rebirth-confirm-overlay"),
+  rebirthConfirmCancel: document.getElementById("rebirth-confirm-cancel"),
+  rebirthConfirmAccept: document.getElementById("rebirth-confirm-accept"),
   levelValue: document.getElementById("level-value"),
   xpCurrent: document.getElementById("xp-current"),
   xpRequired: document.getElementById("xp-required"),
@@ -214,6 +223,7 @@ const elements = {
   codexList: document.getElementById("codex-list"),
   inventoryToggle: document.getElementById("inventory-toggle"),
   inventoryPanel: document.getElementById("inventory-panel"),
+  preservationTitle: document.getElementById("preservation-title"),
   preservationSlots: document.getElementById("preservation-slots"),
   inventoryTabCards: document.getElementById("inventory-tab-cards"),
   inventoryTabMerge: document.getElementById("inventory-tab-merge"),
@@ -222,6 +232,8 @@ const elements = {
   inventorySummary: document.getElementById("inventory-summary"),
   inventoryGrid: document.getElementById("inventory-grid"),
   mergeList: document.getElementById("merge-list"),
+  bulkMergeButton: document.getElementById("bulk-merge-button"),
+  evolutionLog: document.getElementById("evolution-log"),
   levelupOverlay: document.getElementById("levelup-overlay"),
   levelupCards: document.getElementById("levelup-cards"),
   levelupPreview: document.getElementById("levelup-preview"),
@@ -245,14 +257,28 @@ const elements = {
   criticalChanceShopLevel: document.getElementById("critical-chance-shop-level"),
   criticalMultiplierShopCost: document.getElementById("critical-multiplier-shop-cost"),
   criticalMultiplierShopLevel: document.getElementById("critical-multiplier-shop-level"),
+  criticalChanceBulkCost: document.getElementById("critical-chance-bulk-cost"),
+  criticalMultiplierBulkCost: document.getElementById("critical-multiplier-bulk-cost"),
   buyCriticalChanceShop: document.getElementById("buy-critical-chance-shop"),
   buyCriticalMultiplierShop: document.getElementById("buy-critical-multiplier-shop"),
   distortionCost: document.getElementById("distortion-cost"),
   distortionLevel: document.getElementById("distortion-level"),
   singularityCost: document.getElementById("singularity-cost"),
   singularityLevel: document.getElementById("singularity-level"),
+  preservationSlotUpgradeCost: document.getElementById("preservation-slot-upgrade-cost"),
+  preservationSlotUpgradeLevel: document.getElementById("preservation-slot-upgrade-level"),
+  wormholeEngineCost: document.getElementById("wormhole-engine-cost"),
+  wormholeEngineLevel: document.getElementById("wormhole-engine-level"),
+  stardustGravityCost: document.getElementById("stardust-gravity-cost"),
+  stardustGravityLevel: document.getElementById("stardust-gravity-level"),
+  feverHighwayCost: document.getElementById("fever-highway-cost"),
+  feverHighwayLevel: document.getElementById("fever-highway-level"),
   buyDistortion: document.getElementById("buy-distortion"),
   buySingularity: document.getElementById("buy-singularity"),
+  buyPreservationSlotUpgrade: document.getElementById("buy-preservation-slot-upgrade"),
+  buyWormholeEngine: document.getElementById("buy-wormhole-engine"),
+  buyStardustGravity: document.getElementById("buy-stardust-gravity"),
+  buyFeverHighway: document.getElementById("buy-fever-highway"),
   achievementsToggle: document.getElementById("achievements-toggle"),
   dmLabToggle: document.getElementById("dm-lab-toggle"),
   audioToggle: document.getElementById("audio-toggle"),
@@ -271,6 +297,7 @@ const elements = {
 
 let achievementToastTimeoutId;
 let resetConfirmResolver = null;
+let rebirthConfirmResolver = null;
 let levelupCardUnlockAt = 0;
 let wasFeverActiveLastTick = false;
 let activeInventoryTab = "cards";
@@ -746,11 +773,15 @@ function spawnCosmicSelectionBurst(rarity = "common") {
   }
 }
 
-function showImpactToast(text) {
+function showImpactToast(text, { html = false } = {}) {
   if (!elements.impactToast) {
     return;
   }
-  elements.impactToast.textContent = text;
+  if (html) {
+    elements.impactToast.innerHTML = text;
+  } else {
+    elements.impactToast.textContent = text;
+  }
   elements.impactToast.classList.remove("show");
   void elements.impactToast.offsetWidth;
   elements.impactToast.classList.add("show");
@@ -760,14 +791,118 @@ function renderCardCodex() {
   elements.codexList.innerHTML = CARD_LIBRARY.map((card) => {
     const rarityRows = RARITIES.map((rarity) => {
       const text = card.describe(card.values[rarity.key]);
-      return `<li><span class="codex-rarity ${rarity.key}">${rarity.label}</span> ${text}</li>`;
+      return `<li>${formatRarityHtml(rarity.key)} ${escapeHtml(text)}</li>`;
     }).join("");
-    return `<article class="codex-item"><h3>${card.name}</h3><ul>${rarityRows}</ul></article>`;
+    return `<article class="codex-item"><h3>${escapeHtml(card.name)}</h3><ul>${rarityRows}</ul></article>`;
   }).join("");
 }
 
 function getRarityLabel(rarityKey) {
   return RARITIES.find((rarity) => rarity.key === rarityKey)?.label ?? rarityKey;
+}
+
+function normalizeRarityKey(rarityKey) {
+  return RARITY_ORDER.includes(rarityKey) ? rarityKey : "common";
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function formatRarityHtml(rarityKey, text) {
+  const safeKey = normalizeRarityKey(rarityKey);
+  const label = text ?? getRarityLabel(safeKey);
+  return `<span class="rarity-label rarity-${safeKey}">${escapeHtml(label)}</span>`;
+}
+
+function formatRarityBracket(rarityKey) {
+  return formatRarityHtml(rarityKey, `[${getRarityLabel(normalizeRarityKey(rarityKey))}]`);
+}
+
+function formatRarityTransitionHtml(fromRarity, toRarity, separator = " ➔ ") {
+  return `${formatRarityHtml(fromRarity)}${separator}${formatRarityHtml(toRarity)}`;
+}
+
+function formatCardEvolutionHtml(cardName, fromRarity, toRarity) {
+  const safeName = escapeHtml(cardName);
+  return `${safeName}(${formatRarityHtml(fromRarity)}) ➔ ${safeName}(${formatRarityHtml(toRarity)})`;
+}
+
+function formatRarityCountsSummary(countMap) {
+  return RARITIES.map((rarity, index) => {
+    const countHtml = formatRarityHtml(rarity.key, String(countMap[rarity.key] ?? 0));
+    return index === 0 ? countHtml : `<span class="rarity-count-sep">/</span>${countHtml}`;
+  }).join("");
+}
+
+function setLevelupPreview(content, { html = false } = {}) {
+  if (!elements.levelupPreview) {
+    return;
+  }
+  if (html) {
+    elements.levelupPreview.innerHTML = content;
+    return;
+  }
+  elements.levelupPreview.textContent = content;
+}
+
+function getPreservationSlotLimit() {
+  return BASE_PRESERVATION_SLOTS + Math.min(MAX_PRESERVATION_SLOT_UPGRADES, state.darkMatterShop.preservationSlots.level);
+}
+
+function getCriticalChanceMaxLevel() {
+  return Math.floor((MAX_BASE_CRITICAL_CHANCE - BASE_CRITICAL_CHANCE) / 0.005);
+}
+
+function getCriticalChanceIncreasePerLevel() {
+  return 0.005;
+}
+
+function getStardustGravityMultiplier() {
+  return Math.pow(1.1, state.darkMatterShop.stardustGravity.level);
+}
+
+function getWormholeAutoMultiplier() {
+  return Math.pow(1.15, state.darkMatterShop.wormholeEngine.level);
+}
+
+function getFeverHighwayGainMultiplier() {
+  return Math.pow(1.2, state.darkMatterShop.feverHighway.level);
+}
+
+function getFeverHighwayDurationBonusMs() {
+  return state.darkMatterShop.feverHighway.level * 1000;
+}
+
+function pushEvolutionLog(cardId, fromRarity, toRarity) {
+  const base = CARD_LIBRARY_BY_ID[cardId];
+  const name = base?.name ?? cardId;
+  state.evolutionLogs.unshift({ cardId, name, fromRarity, toRarity, at: Date.now() });
+  state.evolutionLogs = state.evolutionLogs.slice(0, MAX_EVOLUTION_LOGS);
+}
+
+function renderEvolutionLogs() {
+  if (!elements.evolutionLog) {
+    return;
+  }
+  if (state.evolutionLogs.length === 0) {
+    elements.evolutionLog.innerHTML = '<p class="inventory-empty">최근 진화 로그가 없습니다.</p>';
+    return;
+  }
+  elements.evolutionLog.innerHTML = state.evolutionLogs
+    .map((log) => {
+      const rarityClass = normalizeRarityKey(log.toRarity);
+      return `<article class="merge-item merge-rarity-${rarityClass}"><p>${formatCardEvolutionHtml(
+        log.name,
+        log.fromRarity,
+        log.toRarity
+      )}</p></article>`;
+    })
+    .join("");
 }
 
 function getCardValue(cardId, rarity) {
@@ -840,23 +975,42 @@ function getNextRarity(rarity) {
 }
 
 function cleanupPreservedCardUids() {
-  const available = new Set(state.cardInventory.map((card) => card.uid));
+  const uidToCard = new Map(state.cardInventory.map((card) => [card.uid, card]));
+  const slotLimit = getPreservationSlotLimit();
+  const seenCardIds = new Set();
   state.preservedCardUids = state.preservedCardUids
-    .filter((uid, index, arr) => Number.isInteger(uid) && available.has(uid) && arr.indexOf(uid) === index)
-    .slice(0, PRESERVATION_SLOT_LIMIT);
+    .filter((uid, index, arr) => {
+      if (!Number.isInteger(uid) || !uidToCard.has(uid) || arr.indexOf(uid) !== index) {
+        return false;
+      }
+      const cardId = uidToCard.get(uid)?.cardId;
+      if (!cardId || seenCardIds.has(cardId)) {
+        return false;
+      }
+      seenCardIds.add(cardId);
+      return true;
+    })
+    .slice(0, slotLimit);
 }
 
 function renderPreservationSlots() {
+  const slotLimit = getPreservationSlotLimit();
   const preservedMap = new Map(state.cardInventory.map((card) => [card.uid, card]));
-  const slots = Array.from({ length: PRESERVATION_SLOT_LIMIT }, (_, index) => {
+  const slots = Array.from({ length: slotLimit }, (_, index) => {
     const uid = state.preservedCardUids[index];
     const card = uid ? preservedMap.get(uid) : null;
     if (!card) {
-      return `<article class="preservation-slot"><strong>SLOT ${index + 1}</strong>비어 있음</article>`;
+      return `<article class="preservation-slot"><strong>SLOT ${index + 1}</strong><span aria-hidden="true">✔</span> 비어 있음</article>`;
     }
     const base = CARD_LIBRARY_BY_ID[card.cardId];
-    return `<article class="preservation-slot"><strong>SLOT ${index + 1}</strong>[${getRarityLabel(card.rarity)}] ${base?.name ?? card.cardId}</article>`;
+    const rarityClass = normalizeRarityKey(card.rarity);
+    return `<article class="preservation-slot filled ${rarityClass}"><strong>SLOT ${index + 1}</strong><span class="card-rarity-line">${formatRarityBracket(
+      card.rarity
+    )}</span>${escapeHtml(base?.name ?? card.cardId)}</article>`;
   });
+  if (elements.preservationTitle) {
+    elements.preservationTitle.textContent = `우주 보존 저장소 (환생 보존 ${slotLimit}슬롯)`;
+  }
   elements.preservationSlots.innerHTML = slots.join("");
 }
 
@@ -899,6 +1053,9 @@ function cardsSortKey(cardIdA, cardIdB) {
 
 function renderMergeUi() {
   const candidates = buildMergeCandidates();
+  if (elements.bulkMergeButton) {
+    elements.bulkMergeButton.disabled = candidates.every((candidate) => candidate.cards.length < candidate.required);
+  }
   if (candidates.length === 0) {
     elements.mergeList.innerHTML = '<p class="inventory-empty">합성 가능한 카드가 없습니다.</p>';
     return;
@@ -908,8 +1065,9 @@ function renderMergeUi() {
       const base = CARD_LIBRARY_BY_ID[candidate.cardId];
       const available = candidate.cards.length;
       const canMerge = available >= candidate.required;
-      return `<article class="merge-item">
-        <p>${base?.name ?? candidate.cardId} | ${getRarityLabel(candidate.rarity)} ${available}장 ➜ ${getRarityLabel(
+      const rarityClass = normalizeRarityKey(candidate.rarity);
+      return `<article class="merge-item merge-rarity-${rarityClass}">
+        <p>${escapeHtml(base?.name ?? candidate.cardId)} | ${formatRarityHtml(candidate.rarity)} ${available}장 ➔ ${formatRarityHtml(
         candidate.nextRarity
       )} (${candidate.required}장 필요)</p>
         <button class="merge-button" data-card-id="${candidate.cardId}" data-rarity="${candidate.rarity}" ${
@@ -934,12 +1092,23 @@ function renderMergeUi() {
 
 function toggleCardPreservation(uid) {
   cleanupPreservedCardUids();
+  const targetCard = state.cardInventory.find((card) => card.uid === uid);
+  if (!targetCard) {
+    return;
+  }
   const index = state.preservedCardUids.indexOf(uid);
   if (index >= 0) {
     state.preservedCardUids.splice(index, 1);
     return;
   }
-  if (state.preservedCardUids.length >= PRESERVATION_SLOT_LIMIT) {
+  const duplicateIndex = state.preservedCardUids.findIndex((preservedUid) => {
+    const preservedCard = state.cardInventory.find((card) => card.uid === preservedUid);
+    return preservedCard?.cardId === targetCard.cardId;
+  });
+  if (duplicateIndex >= 0) {
+    state.preservedCardUids.splice(duplicateIndex, 1);
+  }
+  if (state.preservedCardUids.length >= getPreservationSlotLimit()) {
     return;
   }
   state.preservedCardUids.push(uid);
@@ -967,12 +1136,13 @@ function renderInventoryUi() {
   elements.inventorySummary.innerHTML = `
     <article class="summary-tile"><strong>총 보유 카드</strong>${formatNumber(state.cardInventory.length, 0)}장</article>
     <article class="summary-tile"><strong>영구 패시브 카드</strong>${formatNumber(passiveTotal, 0)}장</article>
-    <article class="summary-tile"><strong>일반/희귀/영웅/전설/신화</strong>${rarityCountMap.common}/${rarityCountMap.rare}/${rarityCountMap.epic}/${rarityCountMap.legendary}/${rarityCountMap.mythic}</article>
+    <article class="summary-tile"><strong>등급별 보유</strong>${formatRarityCountsSummary(rarityCountMap)}</article>
     <article class="summary-tile"><strong>일시 효과 카드</strong>${burstTotal}장</article>
   `;
 
   renderPreservationSlots();
   renderMergeUi();
+  renderEvolutionLogs();
   elements.inventoryGrid.innerHTML = "";
   if (state.cardInventory.length === 0) {
     elements.inventoryGrid.innerHTML = '<p class="inventory-empty">아직 보유한 카드가 없습니다.</p>';
@@ -997,8 +1167,8 @@ function renderInventoryUi() {
       cardNode.classList.add("selected-preserve");
     }
     const value = getCardValue(cardBase.id, cardInstance.rarity);
-    cardNode.innerHTML = `<h4>${cardBase.name}</h4>
-      <p>${getRarityLabel(cardInstance.rarity)} | #${cardInstance.uid}</p>
+    cardNode.innerHTML = `<h4>${escapeHtml(cardBase.name)}</h4>
+      <p class="card-rarity-line">${formatRarityHtml(cardInstance.rarity)} | #${cardInstance.uid}</p>
       <p>${cardBase.kind === "passive" ? "영구 패시브" : "일시 효과"}</p>
       <p>${cardBase.describe(value)}</p>
       <p class="inventory-count">${state.preservedCardUids.includes(cardInstance.uid) ? "보존 지정됨" : "클릭하여 보존 지정"}</p>`;
@@ -1100,7 +1270,7 @@ function previewCardText(card) {
 }
 
 function getXpRequiredForLevel(level) {
-  return Math.max(100, Math.floor(100 * Math.pow(Math.max(1, level), 2.5)));
+  return Math.floor(400 + 100 * Math.pow(1.2, Math.max(1, level)));
 }
 
 function getClickXpGain() {
@@ -1129,7 +1299,7 @@ function getMeteorCooldownMs() {
 }
 
 function getBaseCriticalChance() {
-  return Math.min(MAX_BASE_CRITICAL_CHANCE, BASE_CRITICAL_CHANCE + state.criticalShop.chance.level * 0.01);
+  return Math.min(MAX_BASE_CRITICAL_CHANCE, BASE_CRITICAL_CHANCE + state.criticalShop.chance.level * getCriticalChanceIncreasePerLevel());
 }
 
 function getRawCriticalChanceWithBuffs(customBuffs = state.cardBuffs) {
@@ -1150,10 +1320,7 @@ function getCriticalOverflowMultiplierWithBuffs(customBuffs = state.cardBuffs) {
 }
 
 function getBaseCriticalMultiplier() {
-  return Math.min(
-    MAX_BASE_CRITICAL_MULTIPLIER,
-    BASE_CRITICAL_MULTIPLIER + state.criticalShop.multiplier.level * 0.1
-  );
+  return BASE_CRITICAL_MULTIPLIER + state.criticalShop.multiplier.level * 0.1;
 }
 
 function getCriticalChance() {
@@ -1166,7 +1333,10 @@ function getCriticalMultiplier() {
 }
 
 function getFeverDurationMs() {
-  return Math.min(MAX_FEVER_DURATION_MS, BASE_FEVER_DURATION_MS * state.cardBuffs.feverDurationFactor);
+  return Math.min(
+    MAX_FEVER_DURATION_MS,
+    BASE_FEVER_DURATION_MS * state.cardBuffs.feverDurationFactor + getFeverHighwayDurationBonusMs()
+  );
 }
 
 function getBasePerSecondRate() {
@@ -1181,7 +1351,7 @@ function getFeverBonus() {
   if (!isFeverActive()) {
     return 0;
   }
-  return FEVER_MULTIPLIER * state.cardBuffs.feverMultiplierFactor - 1;
+  return FEVER_MULTIPLIER * state.cardBuffs.feverMultiplierFactor * getFeverHighwayGainMultiplier() - 1;
 }
 
 function getShopMultiplier() {
@@ -1195,18 +1365,21 @@ function getFeverMultiplier() {
 function getPerSecondRate() {
   const shopLayer = getShopMultiplier();
   const cardLayer = getAutoCardBonus();
+  const wormholeLayer = getWormholeAutoMultiplier();
+  const stardustLayer = getStardustGravityMultiplier();
   const rawGain = getBasePerSecondRate() * shopLayer;
   const compressedGain = getSoftcappedAmount(rawGain);
-  return (compressedGain + state.autoMiner.amount * AUTO_MINER_FLAT_PER_LEVEL) * cardLayer * getFeverMultiplier();
+  return (compressedGain + state.autoMiner.amount * AUTO_MINER_FLAT_PER_LEVEL) * cardLayer * wormholeLayer * getFeverMultiplier() * stardustLayer;
 }
 
 function getClickGain() {
   const baseClick = baseStats.clickStardust;
   const shopLayer = getShopMultiplier();
   const cardLayer = getClickCardBonus();
+  const stardustLayer = getStardustGravityMultiplier();
   const rawGain = baseClick * shopLayer;
   const compressedGain = getSoftcappedAmount(rawGain);
-  return (compressedGain + state.clickUpgrade.level * CLICK_UPGRADE_FLAT_PER_LEVEL) * cardLayer * getFeverMultiplier();
+  return (compressedGain + state.clickUpgrade.level * CLICK_UPGRADE_FLAT_PER_LEVEL) * cardLayer * getFeverMultiplier() * stardustLayer;
 }
 
 function getBurstGainFromSeconds(seconds) {
@@ -1259,14 +1432,25 @@ function saveState() {
     },
     darkMatterShop: {
       distortion: { price: state.darkMatterShop.distortion.price, level: state.darkMatterShop.distortion.level },
-      singularity: { price: state.darkMatterShop.singularity.price, level: state.darkMatterShop.singularity.level }
+      singularity: { price: state.darkMatterShop.singularity.price, level: state.darkMatterShop.singularity.level },
+      preservationSlots: {
+        price: state.darkMatterShop.preservationSlots.price,
+        level: state.darkMatterShop.preservationSlots.level
+      },
+      wormholeEngine: { price: state.darkMatterShop.wormholeEngine.price, level: state.darkMatterShop.wormholeEngine.level },
+      stardustGravity: {
+        price: state.darkMatterShop.stardustGravity.price,
+        level: state.darkMatterShop.stardustGravity.level
+      },
+      feverHighway: { price: state.darkMatterShop.feverHighway.price, level: state.darkMatterShop.feverHighway.level }
     },
     cardInventory: state.cardInventory.map((card) => ({
       uid: card.uid,
       cardId: card.cardId,
       rarity: card.rarity
     })),
-    preservedCardUids: state.preservedCardUids.slice(0, PRESERVATION_SLOT_LIMIT),
+    preservedCardUids: state.preservedCardUids.slice(0, getPreservationSlotLimit()),
+    evolutionLogs: state.evolutionLogs.slice(0, MAX_EVOLUTION_LOGS),
     nextCardUid: state.nextCardUid,
     stats: {
       totalClicks: state.stats.totalClicks,
@@ -1332,6 +1516,31 @@ function loadState() {
 
     state.darkMatterShop.singularity.price = Math.max(3, Number(parsed.darkMatterShop?.singularity?.price) || 3);
     state.darkMatterShop.singularity.level = Math.max(0, Number(parsed.darkMatterShop?.singularity?.level) || 0);
+    state.darkMatterShop.preservationSlots.level = Math.min(
+      MAX_PRESERVATION_SLOT_UPGRADES,
+      Math.max(0, Number(parsed.darkMatterShop?.preservationSlots?.level) || 0)
+    );
+    state.darkMatterShop.preservationSlots.price = Math.max(
+      10,
+      Number(parsed.darkMatterShop?.preservationSlots?.price) ||
+        getPreservationSlotUpgradePrice(state.darkMatterShop.preservationSlots.level)
+    );
+    state.darkMatterShop.wormholeEngine.level = Math.max(0, Number(parsed.darkMatterShop?.wormholeEngine?.level) || 0);
+    state.darkMatterShop.wormholeEngine.price = Math.max(
+      5,
+      Number(parsed.darkMatterShop?.wormholeEngine?.price) || 5
+    );
+    state.darkMatterShop.stardustGravity.level = Math.max(
+      0,
+      Number(parsed.darkMatterShop?.stardustGravity?.level) || 0
+    );
+    state.darkMatterShop.stardustGravity.price = Math.max(
+      7,
+      Number(parsed.darkMatterShop?.stardustGravity?.price) || 7
+    );
+    state.darkMatterShop.feverHighway.level = Math.max(0, Number(parsed.darkMatterShop?.feverHighway?.level) || 0);
+    state.darkMatterShop.feverHighway.price = Math.max(9, Number(parsed.darkMatterShop?.feverHighway?.price) || 9);
+    state.darkMatterShop.preservationSlots.price = getPreservationSlotUpgradePrice(state.darkMatterShop.preservationSlots.level);
 
     state.cardBuffs = createEmptyCardBuffs();
 
@@ -1353,7 +1562,22 @@ function loadState() {
       ? parsed.preservedCardUids
           .map((uid) => Math.floor(Number(uid)))
           .filter((uid) => Number.isInteger(uid))
-          .slice(0, PRESERVATION_SLOT_LIMIT)
+          .slice(0, getPreservationSlotLimit())
+      : [];
+    state.evolutionLogs = Array.isArray(parsed.evolutionLogs)
+      ? parsed.evolutionLogs
+          .map((log) => ({
+            cardId: String(log?.cardId || ""),
+            name: String(log?.name || ""),
+            fromRarity: String(log?.fromRarity || "common"),
+            toRarity: String(log?.toRarity || "rare"),
+            at: Number(log?.at) || Date.now()
+          }))
+          .filter(
+            (log) =>
+              CARD_LIBRARY_BY_ID[log.cardId] && RARITY_ORDER.includes(log.fromRarity) && RARITY_ORDER.includes(log.toRarity)
+          )
+          .slice(0, MAX_EVOLUTION_LOGS)
       : [];
     const parsedNextUid = Math.floor(Number(parsed.nextCardUid) || 0);
     const maxUid = state.cardInventory.reduce((max, card) => Math.max(max, card.uid), 0);
@@ -1541,6 +1765,10 @@ function isResetConfirmOpen() {
   return elements.resetConfirmOverlay.classList.contains("show");
 }
 
+function isRebirthConfirmOpen() {
+  return elements.rebirthConfirmOverlay.classList.contains("show");
+}
+
 function closeResetConfirmModal(confirmed) {
   if (!isResetConfirmOpen()) {
     return;
@@ -1556,6 +1784,21 @@ function closeResetConfirmModal(confirmed) {
   }
 }
 
+function closeRebirthConfirmModal(confirmed) {
+  if (!isRebirthConfirmOpen()) {
+    return;
+  }
+  document.body.classList.remove("reset-confirm-open");
+  elements.rebirthConfirmOverlay.classList.remove("show");
+  elements.rebirthConfirmOverlay.setAttribute("aria-hidden", "true");
+
+  if (rebirthConfirmResolver) {
+    const resolver = rebirthConfirmResolver;
+    rebirthConfirmResolver = null;
+    resolver(confirmed);
+  }
+}
+
 function openResetConfirmModal() {
   if (isResetConfirmOpen()) {
     return Promise.resolve(false);
@@ -1566,6 +1809,26 @@ function openResetConfirmModal() {
   elements.resetConfirmAccept.focus();
   return new Promise((resolve) => {
     resetConfirmResolver = resolve;
+  });
+}
+
+function openRebirthConfirmModal(gain) {
+  if (isRebirthConfirmOpen()) {
+    return Promise.resolve(false);
+  }
+  const gainText = formatNumber(gain, 0);
+  const desc = document.getElementById("rebirth-confirm-description");
+  if (desc) {
+    desc.innerHTML =
+      `레벨/XP/보유 카드가 초기화됩니다.<br /><strong>현재 카드 저장소에 있는 카드를 제외하고 모든 카드가 삭제됩니다.</strong><br />` +
+      `환생 시 Dark Matter ${gainText}개를 획득합니다.`;
+  }
+  document.body.classList.add("reset-confirm-open");
+  elements.rebirthConfirmOverlay.classList.add("show");
+  elements.rebirthConfirmOverlay.setAttribute("aria-hidden", "false");
+  elements.rebirthConfirmAccept.focus();
+  return new Promise((resolve) => {
+    rebirthConfirmResolver = resolve;
   });
 }
 
@@ -1588,10 +1851,37 @@ function tryEvolveRandomOwnedCard() {
     return null;
   }
   const target = upgradable[Math.floor(Math.random() * upgradable.length)];
-  const currentIndex = RARITY_ORDER.indexOf(target.rarity);
-  target.rarity = RARITY_ORDER[currentIndex + 1];
+  const fromRarity = target.rarity;
+  const currentIndex = RARITY_ORDER.indexOf(fromRarity);
+  const toRarity = RARITY_ORDER[currentIndex + 1];
+  target.rarity = toRarity;
+  pushEvolutionLog(target.cardId, fromRarity, toRarity);
   recalculateCardBuffs();
-  return target;
+  return { ...target, fromRarity, toRarity };
+}
+
+function performCardMerge(cardId, rarity, mergeItemNode = null) {
+  const required = MERGE_REQUIREMENTS[rarity];
+  const nextRarity = getNextRarity(rarity);
+  if (!required || !nextRarity) {
+    return false;
+  }
+  const refreshedCandidates = state.cardInventory.filter((card) => card.cardId === cardId && card.rarity === rarity);
+  if (refreshedCandidates.length < required) {
+    return false;
+  }
+  const toConsume = refreshedCandidates.slice(0, required);
+  const consumeUidSet = new Set(toConsume.map((card) => card.uid));
+  state.cardInventory = state.cardInventory.filter((card) => !consumeUidSet.has(card.uid));
+  state.preservedCardUids = state.preservedCardUids.filter((uid) => !consumeUidSet.has(uid));
+  addCardToInventory(cardId, nextRarity);
+  pushEvolutionLog(cardId, rarity, nextRarity);
+  cleanupPreservedCardUids();
+  recalculateCardBuffs();
+  playMergeImpactSound();
+  spawnCosmicSelectionBurst(nextRarity);
+  showImpactToast(`합성 성공! ${formatRarityBracket(nextRarity)} 등급 획득!`, { html: true });
+  return true;
 }
 
 function runCardMerge(cardId, rarity, mergeItemNode = null) {
@@ -1615,26 +1905,47 @@ function runCardMerge(cardId, rarity, mergeItemNode = null) {
   spawnCosmicSelectionBurst(nextRarity);
 
   setTimeout(() => {
-    const refreshedCandidates = state.cardInventory.filter((card) => card.cardId === cardId && card.rarity === rarity);
-    if (refreshedCandidates.length < required) {
-      mergeInProgress = false;
-      updateView();
-      return;
-    }
-    const toConsume = refreshedCandidates.slice(0, required);
-    const consumeUidSet = new Set(toConsume.map((card) => card.uid));
-    state.cardInventory = state.cardInventory.filter((card) => !consumeUidSet.has(card.uid));
-    state.preservedCardUids = state.preservedCardUids.filter((uid) => !consumeUidSet.has(uid));
-    addCardToInventory(cardId, nextRarity);
-    cleanupPreservedCardUids();
-    recalculateCardBuffs();
-    playMergeImpactSound();
-    spawnCosmicSelectionBurst(nextRarity);
-    showImpactToast(`합성 성공! [${getRarityLabel(nextRarity)}] 등급 획득!`);
+    performCardMerge(cardId, rarity, mergeItemNode);
     mergeInProgress = false;
     updateView();
     saveState();
   }, 500);
+}
+
+function runBulkCardMerge() {
+  if (mergeInProgress) {
+    return;
+  }
+  mergeInProgress = true;
+  let mergedCount = 0;
+  let safety = 0;
+  while (safety < 200) {
+    safety += 1;
+    const candidates = buildMergeCandidates();
+    let mergedInPass = false;
+    candidates.forEach((candidate) => {
+      const mergeTimes = Math.floor(candidate.cards.length / candidate.required);
+      for (let i = 0; i < mergeTimes; i += 1) {
+        if (performCardMerge(candidate.cardId, candidate.rarity)) {
+          mergedCount += 1;
+          mergedInPass = true;
+        }
+      }
+    });
+    if (!mergedInPass) {
+      break;
+    }
+  }
+  mergeInProgress = false;
+  if (mergedCount > 0) {
+    showImpactToast(`일괄 합성 완료! 총 ${formatNumber(mergedCount, 0)}회 진화`);
+    playMergeChargeSound();
+    updateView();
+    saveState();
+  } else {
+    showImpactToast("일괄 합성 가능한 카드가 없습니다.");
+    updateView();
+  }
 }
 
 function applyLevelupCardSelection(card) {
@@ -1643,7 +1954,8 @@ function applyLevelupCardSelection(card) {
     return "카드 정보를 찾지 못했습니다.";
   }
 
-  let notice = "저장소에 추가됨";
+  const rarityNotice = `${formatRarityBracket(card.rarityClass)} 등급`;
+  let notice = `${rarityNotice} 카드 저장소에 추가됨`;
   const shouldPersistInInventory = isPersistentInventoryCard(card.baseId);
   if (shouldPersistInInventory) {
     addCardToInventory(card.baseId, card.rarityClass);
@@ -1651,21 +1963,25 @@ function applyLevelupCardSelection(card) {
   if (baseCard?.kind === "burst") {
     const burstValue = getCardValue(card.baseId, card.rarityClass);
     state.stardust += getBurstGainFromSeconds(burstValue);
-    notice = `즉시 ${formatRounded(burstValue, 0)}초 분량 보너스 지급 (소모형 카드)`;
+    notice = `${rarityNotice} 즉시 ${formatRounded(burstValue, 0)}초 분량 보너스 지급 (소모형)`;
   }
 
   if (baseCard.kind === "passive") {
     recalculateCardBuffs();
-    notice = "저장소에 추가됨 (영구 패시브 즉시 적용)";
+    notice = `${rarityNotice} 카드 저장소에 추가됨 (영구 패시브 즉시 적용)`;
   }
 
   if (card.hasEmbeddedEvolution) {
     const evolved = tryEvolveRandomOwnedCard();
     if (!evolved) {
-      return `${notice} + 성장의 빛 발동 실패(진화 가능한 카드 없음)`;
+      return `${notice} + ${escapeHtml("성장의 빛 발동 실패(진화 가능한 카드 없음)")}`;
     }
     const evolvedBase = CARD_LIBRARY_BY_ID[evolved.cardId];
-    return `${notice} + 성장의 빛 발동! ${evolvedBase?.name ?? evolved.cardId} ➜ ${getRarityLabel(evolved.rarity)}`;
+    return `${notice} + 성장의 빛 발동! ${formatCardEvolutionHtml(
+      evolvedBase?.name ?? evolved.cardId,
+      evolved.fromRarity,
+      evolved.toRarity
+    )}`;
   }
   return notice;
 }
@@ -1680,7 +1996,7 @@ function openLevelupModal() {
   document.body.classList.add("levelup-open");
   elements.levelupCards.innerHTML = "";
   elements.levelupCards.classList.add("locked");
-  elements.levelupPreview.textContent = "카드에 마우스를 올리면 선택 후 스탯 변화를 확인할 수 있습니다.";
+  setLevelupPreview("카드에 마우스를 올리면 선택 후 스탯 변화를 확인할 수 있습니다.");
   levelupCardUnlockAt = Date.now() + LEVELUP_CARD_LOCK_MS;
 
   const expectedUnlockAt = levelupCardUnlockAt;
@@ -1697,19 +2013,22 @@ function openLevelupModal() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `levelup-card ${card.rarityClass}`;
-    button.innerHTML = `<span class="rarity-chip">${card.rarityLabel}</span><h3>${card.name}</h3><p>${card.description}</p>`;
+    button.innerHTML = `<span class="rarity-chip rarity-${card.rarityClass}">${escapeHtml(card.rarityLabel)}</span><h3>${escapeHtml(
+      card.name
+    )}</h3><p>${escapeHtml(card.description)}</p>`;
     if (card.rarityClass === "legendary" || card.rarityClass === "mythic") {
       attachLegendaryDust(button);
     }
     const previewText = previewCardText(card);
+    const previewHtml = `${formatRarityBracket(card.rarityClass)} · ${escapeHtml(previewText)}`;
     button.addEventListener("mouseenter", () => {
-      elements.levelupPreview.textContent = previewText;
+      setLevelupPreview(previewHtml, { html: true });
     });
     button.addEventListener("focus", () => {
-      elements.levelupPreview.textContent = previewText;
+      setLevelupPreview(previewHtml, { html: true });
     });
     button.addEventListener("mouseleave", () => {
-      elements.levelupPreview.textContent = "카드에 마우스를 올리면 선택 후 스탯 변화를 확인할 수 있습니다.";
+      setLevelupPreview("카드에 마우스를 올리면 선택 후 스탯 변화를 확인할 수 있습니다.");
     });
     button.addEventListener("click", () => {
       if (Date.now() < levelupCardUnlockAt) {
@@ -1728,10 +2047,10 @@ function openLevelupModal() {
         triggerLegendaryBurst("MYTHIC COSMIC ASCENSION!");
       }
       if (card.rarityClass === "legendary" || card.rarityClass === "mythic") {
-        showImpactToast(`${card.rarityLabel} 카드 획득!`);
+        showImpactToast(`${formatRarityHtml(card.rarityClass, card.rarityLabel)} 카드 획득!`, { html: true });
       }
       const selectionNotice = applyLevelupCardSelection(card);
-      elements.levelupPreview.textContent = selectionNotice;
+      setLevelupPreview(selectionNotice, { html: true });
       state.pendingLevelUps = Math.max(0, state.pendingLevelUps - 1);
       checkAchievements();
       updateView();
@@ -1779,8 +2098,8 @@ function updateView() {
   const criticalChance = getCriticalChance();
   const criticalMultiplier = getCriticalMultiplier();
   const clickXpGain = getClickXpGain();
-  const perSecondMultiplier = getShopMultiplier() * getAutoCardBonus() * getFeverMultiplier();
-  const clickMultiplier = getShopMultiplier() * getClickCardBonus() * getFeverMultiplier();
+  const perSecondMultiplier = getShopMultiplier() * getAutoCardBonus() * getWormholeAutoMultiplier() * getFeverMultiplier() * getStardustGravityMultiplier();
+  const clickMultiplier = getShopMultiplier() * getClickCardBonus() * getFeverMultiplier() * getStardustGravityMultiplier();
 
   elements.stardust.textContent = formatStardust(state.stardust);
   elements.darkMatter.textContent = formatNumber(state.darkMatter, 0);
@@ -1866,6 +2185,54 @@ function updateView() {
   elements.criticalChanceShopLevel.textContent = formatNumber(state.criticalShop.chance.level, 0);
   elements.criticalMultiplierShopCost.textContent = formatNumber(state.criticalShop.multiplier.price, 0);
   elements.criticalMultiplierShopLevel.textContent = formatNumber(state.criticalShop.multiplier.level, 0);
+  const chancePlus5 = calculateEscalatingPurchasePlan({
+    startPrice: state.criticalShop.chance.price,
+    budget: Number.POSITIVE_INFINITY,
+    targetCount: 5,
+    maxPurchases: Math.max(0, getCriticalChanceMaxLevel() - state.criticalShop.chance.level)
+  });
+  const chancePlus10 = calculateEscalatingPurchasePlan({
+    startPrice: state.criticalShop.chance.price,
+    budget: Number.POSITIVE_INFINITY,
+    targetCount: 10,
+    maxPurchases: Math.max(0, getCriticalChanceMaxLevel() - state.criticalShop.chance.level)
+  });
+  const chanceMax = calculateEscalatingPurchasePlan({
+    startPrice: state.criticalShop.chance.price,
+    budget: state.stardust,
+    targetCount: Number.POSITIVE_INFINITY,
+    maxPurchases: Math.max(0, getCriticalChanceMaxLevel() - state.criticalShop.chance.level)
+  });
+  const multiplierPlus5 = calculateEscalatingPurchasePlan({
+    startPrice: state.criticalShop.multiplier.price,
+    budget: Number.POSITIVE_INFINITY,
+    targetCount: 5
+  });
+  const multiplierPlus10 = calculateEscalatingPurchasePlan({
+    startPrice: state.criticalShop.multiplier.price,
+    budget: Number.POSITIVE_INFINITY,
+    targetCount: 10
+  });
+  const multiplierMax = calculateEscalatingPurchasePlan({
+    startPrice: state.criticalShop.multiplier.price,
+    budget: state.stardust,
+    targetCount: Number.POSITIVE_INFINITY
+  });
+  if (elements.criticalChanceBulkCost) {
+    elements.criticalChanceBulkCost.textContent = `+5 비용 ${formatNumber(chancePlus5.totalCost, 0)} | +10 비용 ${formatNumber(
+      chancePlus10.totalCost,
+      0
+    )} | 최대 비용 ${formatNumber(chanceMax.totalCost, 0)} (${formatNumber(chanceMax.count, 0)}강)`;
+  }
+  if (elements.criticalMultiplierBulkCost) {
+    elements.criticalMultiplierBulkCost.textContent = `+5 비용 ${formatNumber(
+      multiplierPlus5.totalCost,
+      0
+    )} | +10 비용 ${formatNumber(multiplierPlus10.totalCost, 0)} | 최대 비용 ${formatNumber(
+      multiplierMax.totalCost,
+      0
+    )} (${formatNumber(multiplierMax.count, 0)}강)`;
+  }
 
   elements.buyAutoMiner.disabled = !canPurchaseUpgradeBulk({
     baseCost: GENERAL_UPGRADE_COST.autoMiner.base,
@@ -1882,19 +2249,30 @@ function updateView() {
     growthRate: GENERAL_UPGRADE_COST.xpDrive.growth,
     currentLevel: state.xpDrive.level
   });
-  elements.buyCriticalChanceShop.disabled =
-    state.stardust < state.criticalShop.chance.price || getBaseCriticalChance() >= MAX_BASE_CRITICAL_CHANCE;
-  elements.buyCriticalMultiplierShop.disabled =
-    state.stardust < state.criticalShop.multiplier.price ||
-    getBaseCriticalMultiplier() >= MAX_BASE_CRITICAL_MULTIPLIER;
+  elements.buyCriticalChanceShop.disabled = !canPurchaseCriticalBulk("chance");
+  elements.buyCriticalMultiplierShop.disabled = !canPurchaseCriticalBulk("multiplier");
 
   elements.distortionCost.textContent = formatNumber(state.darkMatterShop.distortion.price, 0);
   elements.distortionLevel.textContent = formatNumber(state.darkMatterShop.distortion.level, 0);
   elements.singularityCost.textContent = formatNumber(state.darkMatterShop.singularity.price, 0);
   elements.singularityLevel.textContent = formatNumber(state.darkMatterShop.singularity.level, 0);
+  elements.preservationSlotUpgradeCost.textContent = formatNumber(state.darkMatterShop.preservationSlots.price, 0);
+  elements.preservationSlotUpgradeLevel.textContent = formatNumber(state.darkMatterShop.preservationSlots.level, 0);
+  elements.wormholeEngineCost.textContent = formatNumber(state.darkMatterShop.wormholeEngine.price, 0);
+  elements.wormholeEngineLevel.textContent = formatNumber(state.darkMatterShop.wormholeEngine.level, 0);
+  elements.stardustGravityCost.textContent = formatNumber(state.darkMatterShop.stardustGravity.price, 0);
+  elements.stardustGravityLevel.textContent = formatNumber(state.darkMatterShop.stardustGravity.level, 0);
+  elements.feverHighwayCost.textContent = formatNumber(state.darkMatterShop.feverHighway.price, 0);
+  elements.feverHighwayLevel.textContent = formatNumber(state.darkMatterShop.feverHighway.level, 0);
 
   elements.buyDistortion.disabled = state.darkMatter < state.darkMatterShop.distortion.price;
   elements.buySingularity.disabled = state.darkMatter < state.darkMatterShop.singularity.price;
+  elements.buyPreservationSlotUpgrade.disabled =
+    state.darkMatter < state.darkMatterShop.preservationSlots.price ||
+    state.darkMatterShop.preservationSlots.level >= MAX_PRESERVATION_SLOT_UPGRADES;
+  elements.buyWormholeEngine.disabled = state.darkMatter < state.darkMatterShop.wormholeEngine.price;
+  elements.buyStardustGravity.disabled = state.darkMatter < state.darkMatterShop.stardustGravity.price;
+  elements.buyFeverHighway.disabled = state.darkMatter < state.darkMatterShop.feverHighway.price;
 
   elements.rebirthButton.disabled = state.stardust < REBIRTH_THRESHOLD || rebirthGain <= 0;
   elements.rebirthButton.textContent = `블랙홀 개방 (환생 +${rebirthGain} DM)`;
@@ -1925,6 +2303,10 @@ function raisePrice(currentPrice) {
 
 function raiseDarkMatterPrice(currentPrice) {
   return Math.ceil(currentPrice * 1.8);
+}
+
+function getPreservationSlotUpgradePrice(level) {
+  return 10 * Math.pow(10, Math.max(0, level));
 }
 
 function spendStardust(cost) {
@@ -2004,6 +2386,68 @@ function canPurchaseUpgradeBulk({ baseCost, growthRate, currentLevel }) {
     return false;
   }
   return state.stardust >= totalCost;
+}
+
+function calculateEscalatingPurchasePlan({ startPrice, budget, targetCount, maxPurchases = Number.POSITIVE_INFINITY }) {
+  const cap = targetCount === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : Math.max(0, targetCount);
+  const purchaseCap = Number.isFinite(maxPurchases) ? Math.max(0, maxPurchases) : Number.POSITIVE_INFINITY;
+  let remainingBudget = Math.max(0, Number(budget) || 0);
+  let nextPrice = Math.max(1, Math.floor(Number(startPrice) || 1));
+  let totalCost = 0;
+  let count = 0;
+
+  while (count < cap && count < purchaseCap) {
+    if (nextPrice > remainingBudget) {
+      break;
+    }
+    remainingBudget -= nextPrice;
+    totalCost += nextPrice;
+    count += 1;
+    nextPrice = raisePrice(nextPrice);
+  }
+
+  return { count, totalCost, nextPrice };
+}
+
+function canPurchaseCriticalBulk(type) {
+  const shopEntry = state.criticalShop[type];
+  if (!shopEntry) {
+    return false;
+  }
+  const requestedCount = selectedBulkPurchase === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : selectedBulkPurchase;
+  const maxPurchases =
+    type === "chance" ? Math.max(0, getCriticalChanceMaxLevel() - state.criticalShop.chance.level) : Number.POSITIVE_INFINITY;
+  const plan = calculateEscalatingPurchasePlan({
+    startPrice: shopEntry.price,
+    budget: state.stardust,
+    targetCount: requestedCount,
+    maxPurchases
+  });
+  if (requestedCount !== Number.POSITIVE_INFINITY && plan.count < requestedCount) {
+    return false;
+  }
+  return plan.count > 0 && plan.totalCost > 0;
+}
+
+function purchaseCriticalBulk(type) {
+  if (!canPurchaseCriticalBulk(type)) {
+    return false;
+  }
+  const requestedCount = selectedBulkPurchase === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : selectedBulkPurchase;
+  const maxPurchases =
+    type === "chance" ? Math.max(0, getCriticalChanceMaxLevel() - state.criticalShop.chance.level) : Number.POSITIVE_INFINITY;
+  const plan = calculateEscalatingPurchasePlan({
+    startPrice: state.criticalShop[type].price,
+    budget: state.stardust,
+    targetCount: requestedCount,
+    maxPurchases
+  });
+  if (!spendStardust(plan.totalCost)) {
+    return false;
+  }
+  state.criticalShop[type].level += plan.count;
+  state.criticalShop[type].price = plan.nextPrice;
+  return plan.count > 0;
 }
 
 function purchaseUpgradeBulk({ baseCost, growthRate, currentLevel }, applyLevels) {
@@ -2087,23 +2531,22 @@ function spawnGoldenMeteor() {
   playMeteorSpawnSound();
 }
 
-function runRebirth() {
+async function runRebirth() {
   const gain = getRebirthDarkMatterGain();
   if (state.stardust < REBIRTH_THRESHOLD || gain <= 0) {
     return;
   }
 
-  const confirmed = window.confirm(
-    `블랙홀 환생을 진행할까요?\n레벨/XP/보유 카드가 초기화되며, 보존 저장소 지정 카드만 유지됩니다.\nDark Matter ${gain}개를 획득합니다.`
-  );
+  const confirmed = await openRebirthConfirmModal(gain);
   if (!confirmed) {
     return;
   }
 
   cleanupPreservedCardUids();
+  const slotLimit = getPreservationSlotLimit();
   const preservedCards = state.cardInventory
     .filter((card) => state.preservedCardUids.includes(card.uid))
-    .slice(0, PRESERVATION_SLOT_LIMIT)
+    .slice(0, slotLimit)
     .map((card) => ({ ...card }));
 
   state.darkMatter += gain;
@@ -2279,30 +2722,24 @@ elements.bulkUpgradeControls?.querySelectorAll("[data-bulk]").forEach((button) =
   });
 });
 
+elements.bulkMergeButton?.addEventListener("click", () => {
+  runBulkCardMerge();
+});
+
 elements.buyCriticalChanceShop.addEventListener("click", () => {
-  if (getBaseCriticalChance() >= MAX_BASE_CRITICAL_CHANCE) {
-    return;
-  }
-  if (!spendStardust(state.criticalShop.chance.price)) {
+  if (!purchaseCriticalBulk("chance")) {
     return;
   }
   playUpgradeSound();
-  state.criticalShop.chance.level += 1;
-  state.criticalShop.chance.price = raisePrice(state.criticalShop.chance.price);
   updateView();
   saveState();
 });
 
 elements.buyCriticalMultiplierShop.addEventListener("click", () => {
-  if (getBaseCriticalMultiplier() >= MAX_BASE_CRITICAL_MULTIPLIER) {
-    return;
-  }
-  if (!spendStardust(state.criticalShop.multiplier.price)) {
+  if (!purchaseCriticalBulk("multiplier")) {
     return;
   }
   playUpgradeSound();
-  state.criticalShop.multiplier.level += 1;
-  state.criticalShop.multiplier.price = raisePrice(state.criticalShop.multiplier.price);
   updateView();
   saveState();
 });
@@ -2321,6 +2758,58 @@ elements.buyDistortion.addEventListener("click", () => {
 
 elements.buySingularity.addEventListener("click", () => {
   const upgrade = state.darkMatterShop.singularity;
+  if (!spendDarkMatter(upgrade.price)) {
+    return;
+  }
+  playUpgradeSound();
+  upgrade.level += 1;
+  upgrade.price = raiseDarkMatterPrice(upgrade.price);
+  updateView();
+  saveState();
+});
+
+elements.buyPreservationSlotUpgrade.addEventListener("click", () => {
+  const upgrade = state.darkMatterShop.preservationSlots;
+  if (upgrade.level >= MAX_PRESERVATION_SLOT_UPGRADES) {
+    return;
+  }
+  if (!spendDarkMatter(upgrade.price)) {
+    return;
+  }
+  playUpgradeSound();
+  upgrade.level += 1;
+  upgrade.price = getPreservationSlotUpgradePrice(upgrade.level);
+  cleanupPreservedCardUids();
+  updateView();
+  saveState();
+});
+
+elements.buyWormholeEngine.addEventListener("click", () => {
+  const upgrade = state.darkMatterShop.wormholeEngine;
+  if (!spendDarkMatter(upgrade.price)) {
+    return;
+  }
+  playUpgradeSound();
+  upgrade.level += 1;
+  upgrade.price = raiseDarkMatterPrice(upgrade.price);
+  updateView();
+  saveState();
+});
+
+elements.buyStardustGravity.addEventListener("click", () => {
+  const upgrade = state.darkMatterShop.stardustGravity;
+  if (!spendDarkMatter(upgrade.price)) {
+    return;
+  }
+  playUpgradeSound();
+  upgrade.level += 1;
+  upgrade.price = raiseDarkMatterPrice(upgrade.price);
+  updateView();
+  saveState();
+});
+
+elements.buyFeverHighway.addEventListener("click", () => {
+  const upgrade = state.darkMatterShop.feverHighway;
   if (!spendDarkMatter(upgrade.price)) {
     return;
   }
@@ -2400,6 +2889,10 @@ document.addEventListener("keydown", (event) => {
       closeResetConfirmModal(false);
       return;
     }
+    if (isRebirthConfirmOpen()) {
+      closeRebirthConfirmModal(false);
+      return;
+    }
     closePanels();
   }
 });
@@ -2423,6 +2916,13 @@ elements.resetConfirmAccept.addEventListener("click", () => closeResetConfirmMod
 elements.resetConfirmOverlay.addEventListener("click", (event) => {
   if (event.target === elements.resetConfirmOverlay) {
     closeResetConfirmModal(false);
+  }
+});
+elements.rebirthConfirmCancel.addEventListener("click", () => closeRebirthConfirmModal(false));
+elements.rebirthConfirmAccept.addEventListener("click", () => closeRebirthConfirmModal(true));
+elements.rebirthConfirmOverlay.addEventListener("click", (event) => {
+  if (event.target === elements.rebirthConfirmOverlay) {
+    closeRebirthConfirmModal(false);
   }
 });
 
