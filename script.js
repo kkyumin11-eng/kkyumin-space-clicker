@@ -18,13 +18,21 @@ const LEVELUP_CARD_LOCK_MS = 1200;
 const AUDIO_PREF_KEY = "stardust-clicker-muted";
 const baseStats = {
   clickStardust: 10,
-  autoProduction: 5,
+  autoProduction: 0,
   feverClicks: FEVER_TRIGGER_CLICKS,
   xpGain: BASE_CLICK_XP,
   critChance: BASE_CRITICAL_CHANCE,
   critMultiplier: BASE_CRITICAL_MULTIPLIER,
   feverDuration: BASE_FEVER_DURATION_MS / 1000,
   feverMultiplier: FEVER_MULTIPLIER
+};
+const CLICK_UPGRADE_FLAT_PER_LEVEL = 2;
+const AUTO_MINER_FLAT_PER_LEVEL = 1;
+const XP_UPGRADE_FLAT_PER_LEVEL = 10;
+const GENERAL_UPGRADE_COST = {
+  autoMiner: { base: 20, growth: 1.62 },
+  clickUpgrade: { base: 30, growth: 1.72 },
+  xpDrive: { base: 45, growth: 1.68 }
 };
 
 const ACHIEVEMENTS = [
@@ -126,9 +134,9 @@ function createInitialState() {
     xp: 0,
     pendingLevelUps: 0,
     isLevelupOpen: false,
-    autoMiner: { price: 50, amount: 0, perSecond: 1 },
-    quantumProbe: { price: 500, amount: 0, perSecond: 10 },
-    milkyDrive: { price: 200, amount: 0, clickBoost: 2 },
+    autoMiner: { price: GENERAL_UPGRADE_COST.autoMiner.base, amount: 0, perSecond: AUTO_MINER_FLAT_PER_LEVEL },
+    clickUpgrade: { price: GENERAL_UPGRADE_COST.clickUpgrade.base, level: 0, clickBoost: CLICK_UPGRADE_FLAT_PER_LEVEL },
+    xpDrive: { price: GENERAL_UPGRADE_COST.xpDrive.base, level: 0 },
     criticalShop: {
       chance: { price: 2000, level: 0 },
       multiplier: { price: 3000, level: 0 }
@@ -222,13 +230,17 @@ const elements = {
   satelliteLayer: document.getElementById("satellite-layer"),
   autoMinerTitle: document.getElementById("auto-miner-title"),
   autoMinerCost: document.getElementById("auto-miner-cost"),
-  quantumProbeTitle: document.getElementById("quantum-probe-title"),
-  quantumProbeCost: document.getElementById("quantum-probe-cost"),
-  milkyDriveTitle: document.getElementById("milky-drive-title"),
-  milkyDriveCost: document.getElementById("milky-drive-cost"),
+  autoMinerBulkCost: document.getElementById("auto-miner-bulk-cost"),
+  clickUpgradeTitle: document.getElementById("click-upgrade-title"),
+  clickUpgradeCost: document.getElementById("click-upgrade-cost"),
+  clickUpgradeBulkCost: document.getElementById("click-upgrade-bulk-cost"),
+  xpDriveTitle: document.getElementById("xp-drive-title"),
+  xpDriveCost: document.getElementById("xp-drive-cost"),
+  xpDriveBulkCost: document.getElementById("xp-drive-bulk-cost"),
   buyAutoMiner: document.getElementById("buy-auto-miner"),
-  buyQuantumProbe: document.getElementById("buy-quantum-probe"),
-  buyMilkyDrive: document.getElementById("buy-milky-drive"),
+  buyClickUpgrade: document.getElementById("buy-click-upgrade"),
+  buyXpDrive: document.getElementById("buy-xp-drive"),
+  bulkUpgradeControls: document.getElementById("bulk-upgrade-controls"),
   criticalChanceShopCost: document.getElementById("critical-chance-shop-cost"),
   criticalChanceShopLevel: document.getElementById("critical-chance-shop-level"),
   criticalMultiplierShopCost: document.getElementById("critical-multiplier-shop-cost"),
@@ -263,6 +275,7 @@ let levelupCardUnlockAt = 0;
 let wasFeverActiveLastTick = false;
 let activeInventoryTab = "cards";
 let mergeInProgress = false;
+let selectedBulkPurchase = 1;
 const audioState = {
   context: null,
   masterGain: null,
@@ -312,7 +325,14 @@ function formatStardust(value) {
 }
 
 function formatRate(value) {
-  return formatNumber(value, 3);
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return "0.0";
+  }
+  if (Math.abs(numeric) < 100) {
+    return numeric.toFixed(1);
+  }
+  return formatNumber(numeric, 1);
 }
 
 function formatPercent(value, digits = 1) {
@@ -321,10 +341,14 @@ function formatPercent(value, digits = 1) {
 
 function getSoftcappedAmount(rawAmount) {
   const numeric = Math.max(0, Number(rawAmount) || 0);
-  if (numeric <= 1) {
-    return numeric;
+  if (numeric <= 0) {
+    return 0;
   }
-  return Math.max(SOFTCAP_MIN_FLOOR, Math.sqrt(numeric));
+  return Math.max(SOFTCAP_MIN_FLOOR, Math.log10(numeric + 1));
+}
+
+function getGeneralUpgradeCost(baseCost, growthRate, level) {
+  return Math.max(1, Math.ceil(baseCost * Math.pow(growthRate, Math.max(0, level))));
 }
 
 function updateAudioToggleUi() {
@@ -839,7 +863,7 @@ function applyPassiveCardToBuffs(cardId, rarity, buffs) {
     return;
   }
   if (cardId === "feverChargeReducer") {
-    buffs.feverChargeFactor *= 1 + value / 100;
+    buffs.feverChargeFactor *= 1 / Math.max(0.05, 1 - value / 100);
     return;
   }
   if (cardId === "xpAmplify") {
@@ -1072,9 +1096,12 @@ function buildStatSnapshot(customBuffs = state.cardBuffs) {
   const shopLayer = getShopMultiplier();
   const clickLayer = customBuffs.clickPercentFactor;
   const autoLayer = customBuffs.autoPercentFactor;
+  const clickCore = getSoftcappedAmount(baseStats.clickStardust * shopLayer * clickLayer);
+  const autoCore = getSoftcappedAmount(baseStats.autoProduction * shopLayer * autoLayer);
+  const feverLayer = getFeverMultiplier();
   return {
-    clickGain: state.clickPower * shopLayer * clickLayer * getFeverMultiplier(),
-    perSecond: getBasePerSecondRate() * shopLayer * autoLayer * getFeverMultiplier(),
+    clickGain: (clickCore + state.clickUpgrade.level * CLICK_UPGRADE_FLAT_PER_LEVEL) * feverLayer,
+    perSecond: (autoCore + state.autoMiner.amount * AUTO_MINER_FLAT_PER_LEVEL) * feverLayer,
     criticalChance: getCriticalChanceWithBuffs(customBuffs)
   };
 }
@@ -1106,7 +1133,8 @@ function previewCardText(card) {
   }
   if (card.baseId === "xpAmplify") {
     const beforeXp = getClickXpGain();
-    const afterXp = BASE_CLICK_XP * virtualBuffs.xpFactor;
+    const baseXp = baseStats.xpGain + state.xpDrive.level * XP_UPGRADE_FLAT_PER_LEVEL;
+    const afterXp = baseXp * virtualBuffs.xpFactor;
     return `클릭 XP 획득량: ${formatDelta(beforeXp, afterXp, 2)}${evolutionSuffix}`;
   }
   if (card.baseId === "criticalStrike") {
@@ -1157,7 +1185,8 @@ function getXpRequiredForLevel(level) {
 }
 
 function getClickXpGain() {
-  return BASE_CLICK_XP * state.cardBuffs.xpFactor;
+  const baseXp = baseStats.xpGain + state.xpDrive.level * XP_UPGRADE_FLAT_PER_LEVEL;
+  return baseXp * state.cardBuffs.xpFactor;
 }
 
 function getPermanentGainMultiplier() {
@@ -1222,11 +1251,7 @@ function getFeverDurationMs() {
 }
 
 function getBasePerSecondRate() {
-  return (
-    baseStats.autoProduction +
-    state.autoMiner.amount * state.autoMiner.perSecond +
-    state.quantumProbe.amount * state.quantumProbe.perSecond
-  );
+  return baseStats.autoProduction;
 }
 
 function isFeverActive() {
@@ -1251,16 +1276,18 @@ function getFeverMultiplier() {
 function getPerSecondRate() {
   const shopLayer = getShopMultiplier();
   const cardLayer = getAutoCardBonus();
-  const rawGain = getBasePerSecondRate() * shopLayer * cardLayer * getFeverMultiplier();
-  return getSoftcappedAmount(rawGain);
+  const rawGain = getBasePerSecondRate() * shopLayer * cardLayer;
+  const compressedGain = getSoftcappedAmount(rawGain);
+  return (compressedGain + state.autoMiner.amount * AUTO_MINER_FLAT_PER_LEVEL) * getFeverMultiplier();
 }
 
 function getClickGain() {
-  const baseClick = state.clickPower;
+  const baseClick = baseStats.clickStardust;
   const shopLayer = getShopMultiplier();
   const cardLayer = getClickCardBonus();
-  const rawGain = baseClick * shopLayer * cardLayer * getFeverMultiplier();
-  return getSoftcappedAmount(rawGain);
+  const rawGain = baseClick * shopLayer * cardLayer;
+  const compressedGain = getSoftcappedAmount(rawGain);
+  return (compressedGain + state.clickUpgrade.level * CLICK_UPGRADE_FLAT_PER_LEVEL) * getFeverMultiplier();
 }
 
 function getBurstGainFromSeconds(seconds) {
@@ -1293,13 +1320,13 @@ function saveState() {
       price: state.autoMiner.price,
       amount: state.autoMiner.amount
     },
-    quantumProbe: {
-      price: state.quantumProbe.price,
-      amount: state.quantumProbe.amount
+    clickUpgrade: {
+      price: state.clickUpgrade.price,
+      level: state.clickUpgrade.level
     },
-    milkyDrive: {
-      price: state.milkyDrive.price,
-      amount: state.milkyDrive.amount
+    xpDrive: {
+      price: state.xpDrive.price,
+      level: state.xpDrive.level
     },
     criticalShop: {
       chance: {
@@ -1355,14 +1382,23 @@ function loadState() {
     state.xp = Math.max(0, Number(parsed.xp) || 0);
     state.clicksTowardFever = Math.max(0, Math.floor(Number(parsed.clicksTowardFever) || 0));
 
-    state.autoMiner.price = Math.max(50, Number(parsed.autoMiner?.price) || 50);
+    state.autoMiner.price = Math.max(
+      GENERAL_UPGRADE_COST.autoMiner.base,
+      Number(parsed.autoMiner?.price) || GENERAL_UPGRADE_COST.autoMiner.base
+    );
     state.autoMiner.amount = Math.max(0, Number(parsed.autoMiner?.amount) || 0);
 
-    state.quantumProbe.price = Math.max(500, Number(parsed.quantumProbe?.price) || 500);
-    state.quantumProbe.amount = Math.max(0, Number(parsed.quantumProbe?.amount) || 0);
-
-    state.milkyDrive.price = Math.max(200, Number(parsed.milkyDrive?.price) || 200);
-    state.milkyDrive.amount = Math.max(0, Number(parsed.milkyDrive?.amount) || 0);
+    const legacyClickLevel = Math.max(0, Number(parsed.milkyDrive?.amount) || 0);
+    state.clickUpgrade.price = Math.max(
+      GENERAL_UPGRADE_COST.clickUpgrade.base,
+      Number(parsed.clickUpgrade?.price) || GENERAL_UPGRADE_COST.clickUpgrade.base
+    );
+    state.clickUpgrade.level = Math.max(legacyClickLevel, Number(parsed.clickUpgrade?.level) || 0);
+    state.xpDrive.price = Math.max(
+      GENERAL_UPGRADE_COST.xpDrive.base,
+      Number(parsed.xpDrive?.price) || GENERAL_UPGRADE_COST.xpDrive.base
+    );
+    state.xpDrive.level = Math.max(0, Number(parsed.xpDrive?.level) || 0);
 
     state.criticalShop.chance.price = Math.max(2000, Number(parsed.criticalShop?.chance?.price) || 2000);
     state.criticalShop.chance.level = Math.max(0, Number(parsed.criticalShop?.chance?.level) || 0);
@@ -1405,6 +1441,22 @@ function loadState() {
     state.nextCardUid = Math.max(1, parsedNextUid || maxUid + 1);
     cleanupPreservedCardUids();
     recalculateCardBuffs();
+    state.clickPower = baseStats.clickStardust + state.clickUpgrade.level * CLICK_UPGRADE_FLAT_PER_LEVEL;
+    state.autoMiner.price = getGeneralUpgradeCost(
+      GENERAL_UPGRADE_COST.autoMiner.base,
+      GENERAL_UPGRADE_COST.autoMiner.growth,
+      state.autoMiner.amount
+    );
+    state.clickUpgrade.price = getGeneralUpgradeCost(
+      GENERAL_UPGRADE_COST.clickUpgrade.base,
+      GENERAL_UPGRADE_COST.clickUpgrade.growth,
+      state.clickUpgrade.level
+    );
+    state.xpDrive.price = getGeneralUpgradeCost(
+      GENERAL_UPGRADE_COST.xpDrive.base,
+      GENERAL_UPGRADE_COST.xpDrive.growth,
+      state.xpDrive.level
+    );
     state.clicksTowardFever = Math.min(state.clicksTowardFever, getFeverTriggerClicksRequired());
 
     state.stats.totalClicks = Math.max(0, Number(parsed.stats?.totalClicks) || 0);
@@ -1816,20 +1868,101 @@ function updateView() {
   elements.perSecond.textContent = formatRate(getPerSecondRate());
   elements.clickPower.textContent = formatRate(getClickGain());
 
-  elements.autoMinerTitle.textContent = `자동 채굴기 | +${formatNumber(state.autoMiner.amount, 0)}`;
+  elements.autoMinerTitle.textContent = `자동 생산 강화 | Lv.${formatNumber(state.autoMiner.amount, 0)}`;
   elements.autoMinerCost.textContent = formatNumber(state.autoMiner.price, 0);
-  elements.quantumProbeTitle.textContent = `양자 탐사선 | +${formatNumber(state.quantumProbe.amount, 0)}`;
-  elements.quantumProbeCost.textContent = formatNumber(state.quantumProbe.price, 0);
-  elements.milkyDriveTitle.textContent = `은하수 드라이브 | +${formatNumber(state.milkyDrive.amount, 0)}`;
-  elements.milkyDriveCost.textContent = formatNumber(state.milkyDrive.price, 0);
+  elements.clickUpgradeTitle.textContent = `클릭 강화 | Lv.${formatNumber(state.clickUpgrade.level, 0)}`;
+  elements.clickUpgradeCost.textContent = formatNumber(state.clickUpgrade.price, 0);
+  elements.xpDriveTitle.textContent = `XP 부스터 강화 | Lv.${formatNumber(state.xpDrive.level, 0)}`;
+  elements.xpDriveCost.textContent = formatNumber(state.xpDrive.price, 0);
+  const autoPlus5 = getUpgradeTotalCost(
+    GENERAL_UPGRADE_COST.autoMiner.base,
+    GENERAL_UPGRADE_COST.autoMiner.growth,
+    state.autoMiner.amount,
+    5
+  );
+  const autoPlus10 = getUpgradeTotalCost(
+    GENERAL_UPGRADE_COST.autoMiner.base,
+    GENERAL_UPGRADE_COST.autoMiner.growth,
+    state.autoMiner.amount,
+    10
+  );
+  const autoMaxPlan = calculateUpgradePurchasePlan({
+    baseCost: GENERAL_UPGRADE_COST.autoMiner.base,
+    growthRate: GENERAL_UPGRADE_COST.autoMiner.growth,
+    currentLevel: state.autoMiner.amount,
+    budget: state.stardust,
+    targetCount: Number.POSITIVE_INFINITY
+  });
+  elements.autoMinerBulkCost.textContent = `+5 비용 ${formatNumber(autoPlus5, 0)} | +10 비용 ${formatNumber(
+    autoPlus10,
+    0
+  )} | 최대 비용 ${formatNumber(autoMaxPlan.totalCost, 0)} (${formatNumber(autoMaxPlan.count, 0)}강)`;
+  const clickPlus5 = getUpgradeTotalCost(
+    GENERAL_UPGRADE_COST.clickUpgrade.base,
+    GENERAL_UPGRADE_COST.clickUpgrade.growth,
+    state.clickUpgrade.level,
+    5
+  );
+  const clickPlus10 = getUpgradeTotalCost(
+    GENERAL_UPGRADE_COST.clickUpgrade.base,
+    GENERAL_UPGRADE_COST.clickUpgrade.growth,
+    state.clickUpgrade.level,
+    10
+  );
+  const clickMaxPlan = calculateUpgradePurchasePlan({
+    baseCost: GENERAL_UPGRADE_COST.clickUpgrade.base,
+    growthRate: GENERAL_UPGRADE_COST.clickUpgrade.growth,
+    currentLevel: state.clickUpgrade.level,
+    budget: state.stardust,
+    targetCount: Number.POSITIVE_INFINITY
+  });
+  elements.clickUpgradeBulkCost.textContent = `+5 비용 ${formatNumber(clickPlus5, 0)} | +10 비용 ${formatNumber(
+    clickPlus10,
+    0
+  )} | 최대 비용 ${formatNumber(clickMaxPlan.totalCost, 0)} (${formatNumber(clickMaxPlan.count, 0)}강)`;
+  const xpPlus5 = getUpgradeTotalCost(
+    GENERAL_UPGRADE_COST.xpDrive.base,
+    GENERAL_UPGRADE_COST.xpDrive.growth,
+    state.xpDrive.level,
+    5
+  );
+  const xpPlus10 = getUpgradeTotalCost(
+    GENERAL_UPGRADE_COST.xpDrive.base,
+    GENERAL_UPGRADE_COST.xpDrive.growth,
+    state.xpDrive.level,
+    10
+  );
+  const xpMaxPlan = calculateUpgradePurchasePlan({
+    baseCost: GENERAL_UPGRADE_COST.xpDrive.base,
+    growthRate: GENERAL_UPGRADE_COST.xpDrive.growth,
+    currentLevel: state.xpDrive.level,
+    budget: state.stardust,
+    targetCount: Number.POSITIVE_INFINITY
+  });
+  elements.xpDriveBulkCost.textContent = `+5 비용 ${formatNumber(xpPlus5, 0)} | +10 비용 ${formatNumber(
+    xpPlus10,
+    0
+  )} | 최대 비용 ${formatNumber(xpMaxPlan.totalCost, 0)} (${formatNumber(xpMaxPlan.count, 0)}강)`;
   elements.criticalChanceShopCost.textContent = formatNumber(state.criticalShop.chance.price, 0);
   elements.criticalChanceShopLevel.textContent = formatNumber(state.criticalShop.chance.level, 0);
   elements.criticalMultiplierShopCost.textContent = formatNumber(state.criticalShop.multiplier.price, 0);
   elements.criticalMultiplierShopLevel.textContent = formatNumber(state.criticalShop.multiplier.level, 0);
 
-  elements.buyAutoMiner.disabled = state.stardust < state.autoMiner.price;
-  elements.buyQuantumProbe.disabled = state.stardust < state.quantumProbe.price;
-  elements.buyMilkyDrive.disabled = state.stardust < state.milkyDrive.price;
+  elements.buyAutoMiner.disabled = !canPurchaseUpgradeBulk({
+    baseCost: GENERAL_UPGRADE_COST.autoMiner.base,
+    growthRate: GENERAL_UPGRADE_COST.autoMiner.growth,
+    currentLevel: state.autoMiner.amount
+  });
+  elements.buyClickUpgrade.disabled = !canPurchaseUpgradeBulk({
+    baseCost: GENERAL_UPGRADE_COST.clickUpgrade.base,
+    growthRate: GENERAL_UPGRADE_COST.clickUpgrade.growth,
+    currentLevel: state.clickUpgrade.level
+  });
+  elements.buyXpDrive.disabled = !canPurchaseUpgradeBulk({
+    baseCost: GENERAL_UPGRADE_COST.xpDrive.base,
+    growthRate: GENERAL_UPGRADE_COST.xpDrive.growth,
+    currentLevel: state.xpDrive.level
+  });
   elements.buyCriticalChanceShop.disabled =
     state.stardust < state.criticalShop.chance.price || getBaseCriticalChance() >= MAX_BASE_CRITICAL_CHANCE;
   elements.buyCriticalMultiplierShop.disabled =
@@ -1888,6 +2021,89 @@ function spendDarkMatter(cost) {
     return false;
   }
   state.darkMatter -= cost;
+  return true;
+}
+
+function updateBulkUpgradeUi() {
+  if (!elements.bulkUpgradeControls) {
+    return;
+  }
+  elements.bulkUpgradeControls.querySelectorAll("[data-bulk]").forEach((button) => {
+    const value = button.getAttribute("data-bulk");
+    const isMax = selectedBulkPurchase === Number.POSITIVE_INFINITY;
+    const isActive = value === "max" ? isMax : String(selectedBulkPurchase) === value;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  });
+}
+
+function calculateUpgradePurchasePlan({ baseCost, growthRate, currentLevel, budget, targetCount }) {
+  const safeBudget = Math.max(0, Number(budget) || 0);
+  const cap = targetCount === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : Math.max(0, targetCount);
+  let remainingBudget = safeBudget;
+  let totalCost = 0;
+  let count = 0;
+
+  while (count < cap) {
+    const stepCost = getGeneralUpgradeCost(baseCost, growthRate, currentLevel + count);
+    if (stepCost > remainingBudget) {
+      break;
+    }
+    remainingBudget -= stepCost;
+    totalCost += stepCost;
+    count += 1;
+  }
+
+  return { count, totalCost };
+}
+
+function getUpgradeTotalCost(baseCost, growthRate, currentLevel, levels) {
+  const plan = calculateUpgradePurchasePlan({
+    baseCost,
+    growthRate,
+    currentLevel,
+    budget: Number.POSITIVE_INFINITY,
+    targetCount: levels
+  });
+  return plan.totalCost;
+}
+
+function canPurchaseUpgradeBulk({ baseCost, growthRate, currentLevel }) {
+  const isMaxPurchase = selectedBulkPurchase === Number.POSITIVE_INFINITY;
+  const requestedCount = isMaxPurchase ? Number.POSITIVE_INFINITY : selectedBulkPurchase;
+  const { count, totalCost } = calculateUpgradePurchasePlan({
+    baseCost,
+    growthRate,
+    currentLevel,
+    budget: state.stardust,
+    targetCount: requestedCount
+  });
+  if (!isMaxPurchase && count < requestedCount) {
+    return false;
+  }
+  if (count <= 0 || totalCost <= 0) {
+    return false;
+  }
+  return state.stardust >= totalCost;
+}
+
+function purchaseUpgradeBulk({ baseCost, growthRate, currentLevel }, applyLevels) {
+  if (!canPurchaseUpgradeBulk({ baseCost, growthRate, currentLevel })) {
+    return false;
+  }
+  const isMaxPurchase = selectedBulkPurchase === Number.POSITIVE_INFINITY;
+  const requestedCount = isMaxPurchase ? Number.POSITIVE_INFINITY : selectedBulkPurchase;
+  const { count, totalCost } = calculateUpgradePurchasePlan({
+    baseCost,
+    growthRate,
+    currentLevel,
+    budget: state.stardust,
+    targetCount: requestedCount
+  });
+  if (!spendStardust(totalCost)) {
+    return false;
+  }
+  applyLevels(count);
   return true;
 }
 
@@ -1980,11 +2196,11 @@ function runRebirth() {
   state.clicksTowardFever = 0;
   state.pendingLevelUps = 0;
   state.autoMiner.amount = 0;
-  state.autoMiner.price = 50;
-  state.quantumProbe.amount = 0;
-  state.quantumProbe.price = 500;
-  state.milkyDrive.amount = 0;
-  state.milkyDrive.price = 200;
+  state.autoMiner.price = GENERAL_UPGRADE_COST.autoMiner.base;
+  state.clickUpgrade.level = 0;
+  state.clickUpgrade.price = GENERAL_UPGRADE_COST.clickUpgrade.base;
+  state.xpDrive.level = 0;
+  state.xpDrive.price = GENERAL_UPGRADE_COST.xpDrive.base;
   state.criticalShop.chance.level = 0;
   state.criticalShop.chance.price = 2000;
   state.criticalShop.multiplier.level = 0;
@@ -2057,39 +2273,91 @@ elements.planetButton.addEventListener("click", (event) => {
 });
 
 elements.buyAutoMiner.addEventListener("click", () => {
-  if (!spendStardust(state.autoMiner.price)) {
+  const purchased = purchaseUpgradeBulk(
+    {
+      baseCost: GENERAL_UPGRADE_COST.autoMiner.base,
+      growthRate: GENERAL_UPGRADE_COST.autoMiner.growth,
+      currentLevel: state.autoMiner.amount
+    },
+    (count) => {
+    state.autoMiner.amount += count;
+    state.stats.autoMinersPurchased += count;
+    state.autoMiner.price = getGeneralUpgradeCost(
+      GENERAL_UPGRADE_COST.autoMiner.base,
+      GENERAL_UPGRADE_COST.autoMiner.growth,
+      state.autoMiner.amount
+    );
+    }
+  );
+  if (!purchased) {
     return;
   }
   playUpgradeSound();
-  state.autoMiner.amount += 1;
-  state.stats.autoMinersPurchased += 1;
-  state.autoMiner.price = raisePrice(state.autoMiner.price);
   checkAchievements();
   updateView();
   saveState();
 });
 
-elements.buyQuantumProbe.addEventListener("click", () => {
-  if (!spendStardust(state.quantumProbe.price)) {
+elements.buyClickUpgrade.addEventListener("click", () => {
+  const purchased = purchaseUpgradeBulk(
+    {
+      baseCost: GENERAL_UPGRADE_COST.clickUpgrade.base,
+      growthRate: GENERAL_UPGRADE_COST.clickUpgrade.growth,
+      currentLevel: state.clickUpgrade.level
+    },
+    (count) => {
+    state.clickUpgrade.level += count;
+    state.clickPower = baseStats.clickStardust + state.clickUpgrade.level * CLICK_UPGRADE_FLAT_PER_LEVEL;
+    state.clickUpgrade.price = getGeneralUpgradeCost(
+      GENERAL_UPGRADE_COST.clickUpgrade.base,
+      GENERAL_UPGRADE_COST.clickUpgrade.growth,
+      state.clickUpgrade.level
+    );
+    }
+  );
+  if (!purchased) {
     return;
   }
   playUpgradeSound();
-  state.quantumProbe.amount += 1;
-  state.quantumProbe.price = raisePrice(state.quantumProbe.price);
   updateView();
   saveState();
 });
 
-elements.buyMilkyDrive.addEventListener("click", () => {
-  if (!spendStardust(state.milkyDrive.price)) {
+elements.buyXpDrive.addEventListener("click", () => {
+  const purchased = purchaseUpgradeBulk(
+    {
+      baseCost: GENERAL_UPGRADE_COST.xpDrive.base,
+      growthRate: GENERAL_UPGRADE_COST.xpDrive.growth,
+      currentLevel: state.xpDrive.level
+    },
+    (count) => {
+    state.xpDrive.level += count;
+    state.xpDrive.price = getGeneralUpgradeCost(
+      GENERAL_UPGRADE_COST.xpDrive.base,
+      GENERAL_UPGRADE_COST.xpDrive.growth,
+      state.xpDrive.level
+    );
+    }
+  );
+  if (!purchased) {
     return;
   }
   playUpgradeSound();
-  state.milkyDrive.amount += 1;
-  state.clickPower += state.milkyDrive.clickBoost;
-  state.milkyDrive.price = raisePrice(state.milkyDrive.price);
   updateView();
   saveState();
+});
+
+elements.bulkUpgradeControls?.querySelectorAll("[data-bulk]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const bulkValue = button.getAttribute("data-bulk");
+    if (bulkValue === "max") {
+      selectedBulkPurchase = Number.POSITIVE_INFINITY;
+    } else {
+      selectedBulkPurchase = Math.max(1, Number(bulkValue) || 1);
+    }
+    updateBulkUpgradeUi();
+    updateView();
+  });
 });
 
 elements.buyCriticalChanceShop.addEventListener("click", () => {
@@ -2261,4 +2529,5 @@ checkAchievements();
 renderCardCodex();
 updateAudioToggleUi();
 setInventoryTabUi("cards");
+updateBulkUpgradeUi();
 updateView();

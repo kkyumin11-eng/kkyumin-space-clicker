@@ -181,32 +181,41 @@
 
     <section class="shop">
       <h2>Shop</h2>
+      <div id="bulk-upgrade-controls" class="inventory-tabs">
+        <button class="inventory-tab active" type="button" data-bulk="1" aria-pressed="true">+1</button>
+        <button class="inventory-tab" type="button" data-bulk="5" aria-pressed="false">+5</button>
+        <button class="inventory-tab" type="button" data-bulk="10" aria-pressed="false">+10</button>
+        <button class="inventory-tab" type="button" data-bulk="max" aria-pressed="false">최대</button>
+      </div>
       <div class="shop-list">
         <article class="shop-item">
           <div>
-            <h3 id="auto-miner-title">자동 채굴기 | +0</h3>
-            <p>초당 +1 Stardust</p>
-            <p class="cost">가격: <span id="auto-miner-cost">50</span></p>
+            <h3 id="auto-miner-title">자동 생산 강화 | Lv.0</h3>
+            <p>초당 생산량 +1 증가</p>
+            <p class="cost">가격: <span id="auto-miner-cost">20</span></p>
+            <p class="cost" id="auto-miner-bulk-cost">+5 비용 0 | +10 비용 0 | 최대 비용 0 (0강)</p>
           </div>
           <button id="buy-auto-miner" class="buy-button">구매</button>
         </article>
 
         <article class="shop-item">
           <div>
-            <h3 id="quantum-probe-title">양자 탐사선 | +0</h3>
-            <p>초당 +10 Stardust</p>
-            <p class="cost">가격: <span id="quantum-probe-cost">500</span></p>
+            <h3 id="click-upgrade-title">클릭 강화 | Lv.0</h3>
+            <p>클릭 당 스타더스트 +2 증가</p>
+            <p class="cost">가격: <span id="click-upgrade-cost">30</span></p>
+            <p class="cost" id="click-upgrade-bulk-cost">+5 비용 0 | +10 비용 0 | 최대 비용 0 (0강)</p>
           </div>
-          <button id="buy-quantum-probe" class="buy-button">구매</button>
+          <button id="buy-click-upgrade" class="buy-button">구매</button>
         </article>
 
         <article class="shop-item">
           <div>
-            <h3 id="milky-drive-title">은하수 드라이브 | +0</h3>
-            <p>클릭당 효율 +2</p>
-            <p class="cost">가격: <span id="milky-drive-cost">200</span></p>
+            <h3 id="xp-drive-title">XP 부스터 강화 | Lv.0</h3>
+            <p>클릭 XP 기본값 +10 증가</p>
+            <p class="cost">가격: <span id="xp-drive-cost">45</span></p>
+            <p class="cost" id="xp-drive-bulk-cost">+5 비용 0 | +10 비용 0 | 최대 비용 0 (0강)</p>
           </div>
-          <button id="buy-milky-drive" class="buy-button">구매</button>
+          <button id="buy-xp-drive" class="buy-button">구매</button>
         </article>
 
         <article class="shop-item">
