@@ -11,6 +11,13 @@ const BASE_CRITICAL_CHANCE = 0.05;
 const MAX_BASE_CRITICAL_CHANCE = 0.5;
 const BASE_CRITICAL_MULTIPLIER = 2;
 const REBIRTH_THRESHOLD = 10_000_000;
+const REBIRTH_DM_PER_STARDUST = 10_000_000;
+const DM_SHOP_PRICE_GROWTH = 2;
+const DM_SINGULARITY_REBIRTH_BONUS_PER_LEVEL = 0.5;
+const DM_WORMHOLE_CLICK_MULT_BASE = 1.15;
+const DM_GRAVITY_XP_MULT_BASE = 1.15;
+const DM_FEVER_GAIN_MULT_BASE = 1.2;
+const DM_FEVER_DURATION_PER_LEVEL_MS = 1000;
 const DARK_MATTER_FORMAT_THRESHOLD = 10000;
 const BASE_CLICK_XP = 10;
 const LEVELUP_CARD_LOCK_MS = 1200;
@@ -364,6 +371,7 @@ const elements = {
 };
 
 let achievementToastTimeoutId;
+let impactToastTimeoutId;
 let resetConfirmResolver = null;
 let rebirthConfirmResolver = null;
 let levelupCardUnlockAt = 0;
@@ -911,9 +919,17 @@ function spawnCosmicSelectionBurst(rarity = "common") {
   }
 }
 
-function showImpactToast(text, { html = false } = {}) {
+function showImpactToast(text, { html = false, variant = "" } = {}) {
   if (!elements.impactToast) {
     return;
+  }
+  if (impactToastTimeoutId) {
+    clearTimeout(impactToastTimeoutId);
+    impactToastTimeoutId = null;
+  }
+  elements.impactToast.className = "impact-toast";
+  if (variant) {
+    elements.impactToast.classList.add(variant);
   }
   if (html) {
     elements.impactToast.innerHTML = text;
@@ -923,6 +939,25 @@ function showImpactToast(text, { html = false } = {}) {
   elements.impactToast.classList.remove("show");
   void elements.impactToast.offsetWidth;
   elements.impactToast.classList.add("show");
+  const durationMs = variant === "growth-light-toast" ? 2000 : 1100;
+  impactToastTimeoutId = setTimeout(() => {
+    elements.impactToast.classList.remove("show", variant);
+    elements.impactToast.className = "impact-toast";
+    impactToastTimeoutId = null;
+  }, durationMs);
+}
+
+function showGrowthLightToast(result) {
+  if (!elements.impactToast) {
+    return;
+  }
+  if (result?.failed) {
+    showImpactToast("✨ 성장의 빛: 진화 가능한 카드 없음", { variant: "growth-light-toast" });
+    return;
+  }
+  const cardName = result?.cardName ?? "카드";
+  const evolutionHtml = formatCardEvolutionColoredHtml(cardName, result.fromRarity, result.toRarity);
+  showImpactToast(`✨ 성장의 빛<br>${evolutionHtml}`, { html: true, variant: "growth-light-toast" });
 }
 
 function renderCardCodex() {
@@ -1030,20 +1065,20 @@ function getCriticalChanceIncreasePerLevel() {
   return 0.005;
 }
 
-function getStardustGravityMultiplier() {
-  return Math.pow(1.1, state.darkMatterShop.stardustGravity.level);
+function getGravityXpMultiplier() {
+  return Math.pow(DM_GRAVITY_XP_MULT_BASE, state.darkMatterShop.stardustGravity.level);
 }
 
 function getWormholeClickMultiplier() {
-  return Math.pow(1.15, state.darkMatterShop.wormholeEngine.level);
+  return Math.pow(DM_WORMHOLE_CLICK_MULT_BASE, state.darkMatterShop.wormholeEngine.level);
 }
 
 function getFeverHighwayGainMultiplier() {
-  return Math.pow(1.2, state.darkMatterShop.feverHighway.level);
+  return Math.pow(DM_FEVER_GAIN_MULT_BASE, state.darkMatterShop.feverHighway.level);
 }
 
 function getFeverHighwayDurationBonusMs() {
-  return state.darkMatterShop.feverHighway.level * 1000;
+  return state.darkMatterShop.feverHighway.level * DM_FEVER_DURATION_PER_LEVEL_MS;
 }
 
 function pushEvolutionLog(cardId, fromRarity, toRarity) {
@@ -1406,21 +1441,12 @@ function getClickFlatBonus() {
 }
 
 function getRawClickMultiplier(customBuffs = state.cardBuffs) {
-  return (
-    customBuffs.clickPercentFactor *
-    getFeverMultiplier() *
-    getWormholeClickMultiplier() *
-    getStardustGravityMultiplier()
-  );
+  return customBuffs.clickPercentFactor * getFeverMultiplier() * getWormholeClickMultiplier();
 }
 
 function buildStatSnapshot(customBuffs = state.cardBuffs) {
   const flat = getClickFlatBonus();
-  const rawMult =
-    customBuffs.clickPercentFactor *
-    getFeverMultiplier() *
-    getWormholeClickMultiplier() *
-    getStardustGravityMultiplier();
+  const rawMult = customBuffs.clickPercentFactor * getFeverMultiplier() * getWormholeClickMultiplier();
   return {
     clickGain: flat * rawMult,
     criticalChance: getCriticalChanceWithBuffs(customBuffs)
@@ -1429,7 +1455,7 @@ function buildStatSnapshot(customBuffs = state.cardBuffs) {
 
 function formatDelta(beforeValue, afterValue, digits = 1) {
   const diff = afterValue - beforeValue;
-  return `${formatRounded(beforeValue, digits)} ➜ ${formatRounded(afterValue, digits)} (${diff >= 0 ? "+" : ""}${formatRounded(
+  return `${formatNumber(beforeValue, digits)} ➜ ${formatNumber(afterValue, digits)} (${diff >= 0 ? "+" : ""}${formatNumber(
     diff,
     digits
   )})`;
@@ -1441,7 +1467,7 @@ function previewCardText(card) {
   if (card.baseId === "starBreak") {
     const value = getCardValue(card.baseId, card.rarityClass);
     const burstGain = getBurstGainFromClicks(value);
-    return `획득량 미리보기: 스타더스트 +${formatRate(burstGain)} (${formatRounded(value, 0)}회 클릭 분량, 즉시 지급)${evolutionSuffix}`;
+    return `획득량 미리보기: 스타더스트 +${formatNumber(burstGain, 2)} (${formatNumber(value, 0)}회 클릭 분량, 즉시 지급)${evolutionSuffix}`;
   }
   const virtualBuffs = { ...state.cardBuffs };
   applyPassiveCardToBuffs(card.baseId, card.rarityClass, virtualBuffs);
@@ -1452,7 +1478,7 @@ function previewCardText(card) {
   if (card.baseId === "xpAmplify") {
     const beforeXp = getClickXpGain();
     const baseXp = baseStats.xpGain + state.xpDrive.level * XP_UPGRADE_FLAT_PER_LEVEL;
-    const afterXp = baseXp * virtualBuffs.xpFactor;
+    const afterXp = baseXp * virtualBuffs.xpFactor * getGravityXpMultiplier();
     return `클릭 XP 획득량: ${formatDelta(beforeXp, afterXp, 2)}${evolutionSuffix}`;
   }
   if (card.baseId === "criticalStrike") {
@@ -1500,7 +1526,11 @@ function getXpRequiredForLevel(level) {
 
 function getClickXpGain() {
   const baseXp = baseStats.xpGain + state.xpDrive.level * XP_UPGRADE_FLAT_PER_LEVEL;
-  return baseXp * state.cardBuffs.xpFactor;
+  return baseXp * state.cardBuffs.xpFactor * getGravityXpMultiplier();
+}
+
+function getTotalXpMultiplier() {
+  return state.cardBuffs.xpFactor * getGravityXpMultiplier();
 }
 
 function getClickCardBonus() {
@@ -1589,9 +1619,9 @@ function getRebirthDarkMatterGain() {
   if (state.stardust < REBIRTH_THRESHOLD) {
     return 0;
   }
-  const logBase = Math.log10(Math.max(1, state.stardust));
-  const rebirthBonus = 1 + state.darkMatterShop.singularity.level * 0.5;
-  return Math.floor(Math.pow(logBase, 2) * rebirthBonus);
+  const baseGain = Math.floor(state.stardust / REBIRTH_DM_PER_STARDUST);
+  const rebirthBonus = 1 + state.darkMatterShop.singularity.level * DM_SINGULARITY_REBIRTH_BONUS_PER_LEVEL;
+  return Math.floor(baseGain * rebirthBonus);
 }
 
 function saveState() {
@@ -2113,11 +2143,12 @@ function runBulkCardMerge() {
 function applyLevelupCardSelection(card) {
   const baseCard = CARD_LIBRARY_BY_ID[card.baseId];
   if (!baseCard) {
-    return "카드 정보를 찾지 못했습니다.";
+    return { notice: "카드 정보를 찾지 못했습니다.", growthLightResult: null };
   }
 
   const rarityNotice = `${formatRarityBracket(card.rarityClass)} 등급`;
   let notice = `${rarityNotice} 카드 저장소에 추가됨`;
+  let growthLightResult = null;
   const shouldPersistInInventory = isPersistentInventoryCard(card.baseId);
   if (shouldPersistInInventory) {
     addCardToInventory(card.baseId, card.rarityClass);
@@ -2125,7 +2156,7 @@ function applyLevelupCardSelection(card) {
   if (baseCard?.kind === "burst") {
     const burstValue = getCardValue(card.baseId, card.rarityClass);
     state.stardust += getBurstGainFromClicks(burstValue);
-    notice = `${rarityNotice} 즉시 ${formatRounded(burstValue, 0)}회 클릭 분량 보너스 지급 (소모형)`;
+    notice = `${rarityNotice} 즉시 ${formatNumber(burstValue, 0)}회 클릭 분량 보너스 지급 (소모형)`;
   }
 
   if (baseCard.kind === "passive") {
@@ -2136,17 +2167,27 @@ function applyLevelupCardSelection(card) {
   if (card.hasEmbeddedEvolution) {
     const evolved = tryEvolveRandomOwnedCard();
     if (!evolved) {
-      return `${notice} + ${escapeHtml("성장의 빛 발동 실패(진화 가능한 카드 없음)")}`;
+      growthLightResult = { failed: true };
+      return {
+        notice: `${notice}<br><strong>✨ 성장의 빛:</strong> 진화 가능한 카드 없음`,
+        growthLightResult
+      };
     }
     const evolvedBase = CARD_LIBRARY_BY_ID[evolved.cardId];
+    const evolvedName = evolvedBase?.name ?? evolved.cardId;
     renderEvolutionLogs();
-    return `${notice} + 성장의 빛 발동! ${formatCardEvolutionColoredHtml(
-      evolvedBase?.name ?? evolved.cardId,
-      evolved.fromRarity,
-      evolved.toRarity
-    )}`;
+    const evolutionHtml = formatCardEvolutionColoredHtml(evolvedName, evolved.fromRarity, evolved.toRarity);
+    growthLightResult = {
+      cardName: evolvedName,
+      fromRarity: evolved.fromRarity,
+      toRarity: evolved.toRarity
+    };
+    return {
+      notice: `${notice}<br><strong>✨ 성장의 빛:</strong> ${evolutionHtml}`,
+      growthLightResult
+    };
   }
-  return notice;
+  return { notice, growthLightResult };
 }
 
 function openLevelupModal() {
@@ -2209,11 +2250,13 @@ function openLevelupModal() {
       if (card.rarityClass === "mythic") {
         triggerLegendaryBurst("MYTHIC COSMIC ASCENSION!");
       }
-      if (card.rarityClass === "legendary" || card.rarityClass === "mythic") {
+      const { notice: selectionNotice, growthLightResult } = applyLevelupCardSelection(card);
+      setLevelupPreview(selectionNotice, { html: true });
+      if (growthLightResult) {
+        showGrowthLightToast(growthLightResult);
+      } else if (card.rarityClass === "legendary" || card.rarityClass === "mythic") {
         showImpactToast(`${formatRarityHtml(card.rarityClass, card.rarityLabel)} 카드 획득!`, { html: true });
       }
-      const selectionNotice = applyLevelupCardSelection(card);
-      setLevelupPreview(selectionNotice, { html: true });
       state.pendingLevelUps = Math.max(0, state.pendingLevelUps - 1);
       checkAchievements();
       updateView();
@@ -2261,8 +2304,7 @@ function updateView() {
   const criticalChance = getCriticalChance();
   const criticalMultiplier = getCriticalMultiplier();
   const clickXpGain = getClickXpGain();
-  const clickMultiplier =
-    getClickCardBonus() * getWormholeClickMultiplier() * getFeverMultiplier() * getStardustGravityMultiplier();
+  const clickMultiplier = getClickCardBonus() * getWormholeClickMultiplier() * getFeverMultiplier();
 
   elements.stardust.textContent = formatStardust(state.stardust);
   elements.darkMatter.textContent = formatDarkMatter(state.darkMatter);
@@ -2422,7 +2464,7 @@ function updateView() {
   elements.statClickMultiplier.textContent = `x${formatRate(clickMultiplier)}`;
   elements.statCardClickMultiplier.textContent = `x${formatRate(state.cardBuffs.clickPercentFactor)}`;
   elements.statXpGain.textContent = formatRate(clickXpGain);
-  elements.statXpMultiplier.textContent = `x${formatRate(state.cardBuffs.xpFactor)}`;
+  elements.statXpMultiplier.textContent = `x${formatRate(getTotalXpMultiplier())}`;
 
   updateLevelPanel();
   updateFeverLabel();
@@ -2436,7 +2478,7 @@ function raisePrice(currentPrice) {
 }
 
 function raiseDarkMatterPrice(currentPrice) {
-  return Math.ceil(currentPrice * 1.8);
+  return Math.ceil(currentPrice * DM_SHOP_PRICE_GROWTH);
 }
 
 function getPreservationSlotUpgradePrice(level) {
