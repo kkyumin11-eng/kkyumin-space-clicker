@@ -634,9 +634,9 @@ body.levelup-open .levelup-overlay {
 
 .hud-inventory-toggle {
   position: absolute;
-  top: auto;
-  left: 76px;
-  bottom: 12px;
+  top: 12px;
+  left: 12px;
+  bottom: auto;
   z-index: 5;
 }
 
@@ -1218,7 +1218,8 @@ body.levelup-open .levelup-overlay {
 }
 
 .inventory-panel {
-  right: 12px;
+  left: 12px;
+  right: auto;
   top: 86px;
   border-color: rgba(145, 183, 255, 0.62);
 }
