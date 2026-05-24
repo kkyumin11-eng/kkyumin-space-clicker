@@ -13,7 +13,6 @@ const BASE_CRITICAL_MULTIPLIER = 2;
 const REBIRTH_THRESHOLD = 10_000_000;
 const STARDUST_LOG_SCALE = 10;
 const DARK_MATTER_FORMAT_THRESHOLD = 10000;
-const MAX_ACTIVITY_LOG_LINES = 8;
 const BASE_CLICK_XP = 10;
 const LEVELUP_CARD_LOCK_MS = 1200;
 const GROWTH_LIGHT_MAX_TARGET_RARITY = "epic";
@@ -270,7 +269,6 @@ const elements = {
   feverStatus: document.getElementById("fever-status"),
   rebirthButton: document.getElementById("rebirth-button"),
   rebirthHint: document.getElementById("rebirth-hint"),
-  activityLog: document.getElementById("activity-log"),
   statsToggle: document.getElementById("stats-toggle"),
   codexToggle: document.getElementById("codex-toggle"),
   inventoryToggle: document.getElementById("inventory-toggle"),
@@ -372,7 +370,6 @@ let rebirthConfirmResolver = null;
 let levelupCardUnlockAt = 0;
 let wasFeverActiveLastTick = false;
 let activeInventoryTab = "cards";
-const activityLogs = [];
 let mergeInProgress = false;
 let selectedBulkPurchase = 1;
 const audioState = {
@@ -1179,30 +1176,6 @@ function setInventoryTabUi(tab) {
   if (tab === "cards") {
     renderInventoryUi();
   }
-}
-
-function pushActivityLog(message, { variant = "" } = {}) {
-  activityLogs.unshift({ message, variant, at: Date.now() });
-  if (activityLogs.length > MAX_ACTIVITY_LOG_LINES) {
-    activityLogs.length = MAX_ACTIVITY_LOG_LINES;
-  }
-  renderActivityLog();
-}
-
-function renderActivityLog() {
-  if (!elements.activityLog) {
-    return;
-  }
-  if (activityLogs.length === 0) {
-    elements.activityLog.innerHTML = '<p class="log-empty">클릭하여 우주를 탐험하세요</p>';
-    return;
-  }
-  elements.activityLog.innerHTML = activityLogs
-    .map((entry) => {
-      const className = entry.variant ? `log-line ${entry.variant}` : "log-line";
-      return `<p class="${className}">${escapeHtml(entry.message)}</p>`;
-    })
-    .join("");
 }
 
 function setPanelOpen(panel, toggleButton, open) {
@@ -2059,7 +2032,6 @@ function performCardMerge(cardId, rarity, mergeItemNode = null) {
   playMergeImpactSound();
   spawnCosmicSelectionBurst(nextRarity);
   showImpactToast(`합성 성공! ${formatRarityBracket(nextRarity)} 등급 획득!`, { html: true });
-  pushActivityLog(`합성 성공: ${formatRarityBracket(nextRarity)}`);
   return true;
 }
 
@@ -2648,7 +2620,6 @@ function startFever() {
   state.stats.meteorClicks += 1;
   state.feverUntil = Date.now() + getFeverDurationMs();
   state.clicksTowardFever = 0;
-  pushActivityLog("피버 타임 발동!");
   checkAchievements();
   updateView();
   saveState();
@@ -2725,7 +2696,6 @@ async function runRebirth() {
     openLevelupModal();
   }
 
-  pushActivityLog(`환생 완료! Dark Matter +${formatDarkMatter(gain)}`);
   updateView();
   saveState();
 }
@@ -2760,10 +2730,6 @@ elements.planetButton.addEventListener("click", (event) => {
   const criticalHit = Math.random() < getCriticalChance();
   const clickGain = getClickGain(criticalHit ? getCriticalMultiplier() : 1);
   state.stardust += clickGain;
-  pushActivityLog(
-    criticalHit ? `CRIT +${formatRate(clickGain)} 스타더스트` : `+${formatRate(clickGain)} 스타더스트`,
-    { variant: criticalHit ? "crit" : "" }
-  );
   playClickSound(criticalHit);
   state.stats.totalClicks += 1;
   if (!isFeverActive()) {
@@ -3081,9 +3047,7 @@ loadState();
 wasFeverActiveLastTick = isFeverActive();
 checkAchievements();
 renderCardCodex();
-renderActivityLog();
 updateAudioToggleUi();
 setInventoryTabUi("cards");
 updateBulkUpgradeUi();
 updateView();
-pushActivityLog("우주 클리커에 오신 것을 환영합니다.");
