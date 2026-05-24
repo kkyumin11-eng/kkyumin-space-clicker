@@ -10,17 +10,21 @@ const MAX_FEVER_DURATION_MS = 90000;
 const BASE_CRITICAL_CHANCE = 0.05;
 const MAX_BASE_CRITICAL_CHANCE = 0.5;
 const BASE_CRITICAL_MULTIPLIER = 2;
-const REBIRTH_THRESHOLD = 100000;
+const REBIRTH_THRESHOLD = 10_000_000;
+const STARDUST_LOG_SCALE = 10;
+const DARK_MATTER_FORMAT_THRESHOLD = 10000;
+const MAX_ACTIVITY_LOG_LINES = 8;
 const BASE_CLICK_XP = 10;
-const SOFTCAP_MIN_FLOOR = 0.15;
 const LEVELUP_CARD_LOCK_MS = 1200;
+const GROWTH_LIGHT_MAX_TARGET_RARITY = "epic";
 const AUDIO_PREF_KEY = "stardust-clicker-muted";
+const MUSIC_PLAYLIST_MODE = "random";
+const MUSIC_STEPS_PER_TRACK = 32;
 const BASE_PRESERVATION_SLOTS = 1;
 const MAX_PRESERVATION_SLOT_UPGRADES = 10;
 const MAX_EVOLUTION_LOGS = 14;
 const baseStats = {
-  clickStardust: 10,
-  autoProduction: 0,
+  clickStardust: 1,
   feverClicks: FEVER_TRIGGER_CLICKS,
   xpGain: BASE_CLICK_XP,
   critChance: BASE_CRITICAL_CHANCE,
@@ -29,12 +33,94 @@ const baseStats = {
   feverMultiplier: FEVER_MULTIPLIER
 };
 const CLICK_UPGRADE_FLAT_PER_LEVEL = 2;
-const AUTO_MINER_FLAT_PER_LEVEL = 1;
 const XP_UPGRADE_FLAT_PER_LEVEL = 10;
 const GENERAL_UPGRADE_COST = {
-  autoMiner: { base: 20, growth: 1.62 },
   clickUpgrade: { base: 30, growth: 1.72 },
   xpDrive: { base: 45, growth: 1.68 }
+};
+
+const RARITY_COLORS = {
+  common: "#888888",
+  rare: "#007bff",
+  epic: "#a335ee",
+  legendary: "#ff8000",
+  mythic: "#ff47cf"
+};
+
+function buildFormatNumberUnits() {
+  const units = ["K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc"];
+  const alphabet = "abcdefghijklmnopqrstuvwxyz";
+  for (let first = 0; first < alphabet.length; first += 1) {
+    for (let second = 0; second < alphabet.length; second += 1) {
+      units.push(alphabet[first] + alphabet[second]);
+    }
+  }
+  return units;
+}
+
+const FORMAT_NUMBER_UNITS = buildFormatNumberUnits();
+
+const MUSIC_PLAYLISTS = {
+  normal: [
+    {
+      id: "nebula-drift",
+      chordMap: [196, 220, 247, 220, 196, 247, 220, 196],
+      tempo: 86,
+      bassType: "triangle",
+      leadMultiplier: 1.98
+    },
+    {
+      id: "orbit-lullaby",
+      chordMap: [174, 196, 220, 196, 174, 220, 196, 174],
+      tempo: 78,
+      bassType: "triangle",
+      leadMultiplier: 1.92
+    },
+    {
+      id: "stardust-echo",
+      chordMap: [220, 247, 262, 247, 220, 262, 247, 220],
+      tempo: 92,
+      bassType: "sine",
+      leadMultiplier: 2.02
+    },
+    {
+      id: "void-harmony",
+      chordMap: [165, 196, 220, 196, 165, 220, 196, 165],
+      tempo: 82,
+      bassType: "triangle",
+      leadMultiplier: 1.95
+    }
+  ],
+  fever: [
+    {
+      id: "supernova-rush",
+      chordMap: [220, 262, 294, 262, 220, 330, 294, 262],
+      tempo: 124,
+      bassType: "sawtooth",
+      leadMultiplier: 2.05
+    },
+    {
+      id: "plasma-surge",
+      chordMap: [247, 294, 330, 294, 247, 349, 330, 294],
+      tempo: 132,
+      bassType: "sawtooth",
+      leadMultiplier: 2.08
+    },
+    {
+      id: "cosmic-overdrive",
+      chordMap: [196, 247, 294, 247, 196, 311, 294, 247],
+      tempo: 128,
+      bassType: "square",
+      leadMultiplier: 2.1
+    },
+    {
+      id: "fever-prism",
+      chordMap: [262, 311, 349, 311, 262, 392, 349, 311],
+      tempo: 136,
+      bassType: "sawtooth",
+      leadMultiplier: 2.12
+    }
+  ]
 };
 
 const ACHIEVEMENTS = [
@@ -69,13 +155,6 @@ const CARD_LIBRARY = [
     describe: (value) => `클릭당 스타더스트 전체 획득량 +${value}%`
   },
   {
-    id: "spaceAcceleration",
-    name: "우주 가속도",
-    kind: "passive",
-    values: { common: 10, rare: 25, epic: 50, legendary: 100, mythic: 200 },
-    describe: (value) => `모든 자동 생산 효율 +${value}%`
-  },
-  {
     id: "feverChargeReducer",
     name: "피버 타임 쿨타임 감소",
     kind: "passive",
@@ -87,7 +166,7 @@ const CARD_LIBRARY = [
     name: "스타 브레이크",
     kind: "burst",
     values: { common: 60, rare: 300, epic: 1200, legendary: 3600, mythic: 14400 },
-    describe: (value) => `즉시 현재 초당 획득량의 ${value}초 분량 획득`
+    describe: (value) => `즉시 현재 클릭 획득량의 ${value}회 분량 획득`
   },
   {
     id: "xpAmplify",
@@ -135,7 +214,6 @@ function createInitialState() {
     xp: 0,
     pendingLevelUps: 0,
     isLevelupOpen: false,
-    autoMiner: { price: GENERAL_UPGRADE_COST.autoMiner.base, amount: 0, perSecond: AUTO_MINER_FLAT_PER_LEVEL },
     clickUpgrade: { price: GENERAL_UPGRADE_COST.clickUpgrade.base, level: 0, clickBoost: CLICK_UPGRADE_FLAT_PER_LEVEL },
     xpDrive: { price: GENERAL_UPGRADE_COST.xpDrive.base, level: 0 },
     criticalShop: {
@@ -147,7 +225,6 @@ function createInitialState() {
     meteorVisible: false,
     meteorCooldownUntil: 0,
     darkMatterShop: {
-      distortion: { price: 1, level: 0 },
       singularity: { price: 3, level: 0 },
       preservationSlots: { price: 10, level: 0 },
       wormholeEngine: { price: 5, level: 0 },
@@ -161,8 +238,7 @@ function createInitialState() {
     nextCardUid: 1,
     stats: {
       totalClicks: 0,
-      meteorClicks: 0,
-      autoMinersPurchased: 0
+      meteorClicks: 0
     },
     achievements: {
       cosmicPioneer: false,
@@ -176,7 +252,6 @@ function createInitialState() {
 function createEmptyCardBuffs() {
   return {
     clickPercentFactor: 1,
-    autoPercentFactor: 1,
     feverChargeFactor: 1,
     xpFactor: 1,
     criticalChanceFactor: 1,
@@ -191,12 +266,19 @@ const state = createInitialState();
 const elements = {
   stardust: document.getElementById("stardust-count"),
   darkMatter: document.getElementById("dark-matter-count"),
-  perSecond: document.getElementById("per-second"),
   clickPower: document.getElementById("click-power"),
   feverStatus: document.getElementById("fever-status"),
   rebirthButton: document.getElementById("rebirth-button"),
+  rebirthHint: document.getElementById("rebirth-hint"),
+  activityLog: document.getElementById("activity-log"),
   statsToggle: document.getElementById("stats-toggle"),
   codexToggle: document.getElementById("codex-toggle"),
+  inventoryToggle: document.getElementById("inventory-toggle"),
+  codexPanel: document.getElementById("codex-panel"),
+  inventoryPanel: document.getElementById("inventory-panel"),
+  inventoryCardsView: document.getElementById("inventory-cards-view"),
+  inventoryMergeView: document.getElementById("inventory-merge-view"),
+  dmLabToggle: document.getElementById("dm-lab-toggle"),
   resetProgressButton: document.getElementById("reset-progress-button"),
   resetConfirmOverlay: document.getElementById("reset-confirm-overlay"),
   resetConfirmCancel: document.getElementById("reset-confirm-cancel"),
@@ -212,23 +294,20 @@ const elements = {
   statCriticalMultiplier: document.getElementById("stat-critical-multiplier"),
   statMeteorChance: document.getElementById("stat-meteor-chance"),
   statFeverDuration: document.getElementById("stat-fever-duration"),
-  statPerSecondMultiplier: document.getElementById("stat-per-second-multiplier"),
   statClickMultiplier: document.getElementById("stat-click-multiplier"),
   statCardClickMultiplier: document.getElementById("stat-card-click-multiplier"),
-  statCardAutoMultiplier: document.getElementById("stat-card-auto-multiplier"),
   statXpGain: document.getElementById("stat-xp-gain"),
   statXpMultiplier: document.getElementById("stat-xp-multiplier"),
   statPanel: document.getElementById("stat-panel"),
-  codexPanel: document.getElementById("codex-panel"),
   codexList: document.getElementById("codex-list"),
-  inventoryToggle: document.getElementById("inventory-toggle"),
-  inventoryPanel: document.getElementById("inventory-panel"),
+  growthLightHelpToggle: document.getElementById("growth-light-help-toggle"),
+  growthLightHelpText: document.getElementById("growth-light-help-text"),
+  growthLightHelpInventory: document.getElementById("growth-light-help-inventory"),
+  growthLightHelpInventoryText: document.getElementById("growth-light-help-inventory-text"),
   preservationTitle: document.getElementById("preservation-title"),
   preservationSlots: document.getElementById("preservation-slots"),
   inventoryTabCards: document.getElementById("inventory-tab-cards"),
   inventoryTabMerge: document.getElementById("inventory-tab-merge"),
-  inventoryCardsView: document.getElementById("inventory-cards-view"),
-  inventoryMergeView: document.getElementById("inventory-merge-view"),
   inventorySummary: document.getElementById("inventory-summary"),
   inventoryGrid: document.getElementById("inventory-grid"),
   mergeList: document.getElementById("merge-list"),
@@ -240,16 +319,12 @@ const elements = {
   planetButton: document.getElementById("planet-button"),
   planetSection: document.querySelector(".planet-section"),
   satelliteLayer: document.getElementById("satellite-layer"),
-  autoMinerTitle: document.getElementById("auto-miner-title"),
-  autoMinerCost: document.getElementById("auto-miner-cost"),
-  autoMinerBulkCost: document.getElementById("auto-miner-bulk-cost"),
   clickUpgradeTitle: document.getElementById("click-upgrade-title"),
   clickUpgradeCost: document.getElementById("click-upgrade-cost"),
   clickUpgradeBulkCost: document.getElementById("click-upgrade-bulk-cost"),
   xpDriveTitle: document.getElementById("xp-drive-title"),
   xpDriveCost: document.getElementById("xp-drive-cost"),
   xpDriveBulkCost: document.getElementById("xp-drive-bulk-cost"),
-  buyAutoMiner: document.getElementById("buy-auto-miner"),
   buyClickUpgrade: document.getElementById("buy-click-upgrade"),
   buyXpDrive: document.getElementById("buy-xp-drive"),
   bulkUpgradeControls: document.getElementById("bulk-upgrade-controls"),
@@ -261,8 +336,6 @@ const elements = {
   criticalMultiplierBulkCost: document.getElementById("critical-multiplier-bulk-cost"),
   buyCriticalChanceShop: document.getElementById("buy-critical-chance-shop"),
   buyCriticalMultiplierShop: document.getElementById("buy-critical-multiplier-shop"),
-  distortionCost: document.getElementById("distortion-cost"),
-  distortionLevel: document.getElementById("distortion-level"),
   singularityCost: document.getElementById("singularity-cost"),
   singularityLevel: document.getElementById("singularity-level"),
   preservationSlotUpgradeCost: document.getElementById("preservation-slot-upgrade-cost"),
@@ -273,14 +346,12 @@ const elements = {
   stardustGravityLevel: document.getElementById("stardust-gravity-level"),
   feverHighwayCost: document.getElementById("fever-highway-cost"),
   feverHighwayLevel: document.getElementById("fever-highway-level"),
-  buyDistortion: document.getElementById("buy-distortion"),
   buySingularity: document.getElementById("buy-singularity"),
   buyPreservationSlotUpgrade: document.getElementById("buy-preservation-slot-upgrade"),
   buyWormholeEngine: document.getElementById("buy-wormhole-engine"),
   buyStardustGravity: document.getElementById("buy-stardust-gravity"),
   buyFeverHighway: document.getElementById("buy-fever-highway"),
   achievementsToggle: document.getElementById("achievements-toggle"),
-  dmLabToggle: document.getElementById("dm-lab-toggle"),
   audioToggle: document.getElementById("audio-toggle"),
   achievementPanel: document.getElementById("achievement-panel"),
   darkMatterLab: document.getElementById("dark-matter-lab"),
@@ -301,6 +372,7 @@ let rebirthConfirmResolver = null;
 let levelupCardUnlockAt = 0;
 let wasFeverActiveLastTick = false;
 let activeInventoryTab = "cards";
+const activityLogs = [];
 let mergeInProgress = false;
 let selectedBulkPurchase = 1;
 const audioState = {
@@ -314,6 +386,12 @@ const audioState = {
   schedulerId: null,
   nextNoteTime: 0,
   step: 0,
+  stepsInCurrentTrack: 0,
+  activeNormalTrackIndex: 0,
+  activeFeverTrackIndex: 0,
+  currentPlaylistMode: MUSIC_PLAYLIST_MODE,
+  activeTrack: null,
+  lastFeverMode: false,
   muted: localStorage.getItem(AUDIO_PREF_KEY) === "true",
   userActivated: false
 };
@@ -337,18 +415,29 @@ function formatNumber(value, digits = 2) {
   if (abs < 1000) {
     return `${sign}${formatRounded(abs, digits)}`;
   }
-  const units = ["K", "M", "B", "T", "Qa", "Qi", "Sx"];
   let scaled = abs;
   let unitIndex = -1;
-  while (scaled >= 1000 && unitIndex < units.length - 1) {
+  while (scaled >= 1000 && unitIndex < FORMAT_NUMBER_UNITS.length - 1) {
     scaled /= 1000;
     unitIndex += 1;
   }
-  return `${sign}${formatRounded(scaled, digits)}${units[unitIndex]}`;
+  const unit = FORMAT_NUMBER_UNITS[unitIndex] ?? "??";
+  return `${sign}${formatRounded(scaled, digits)}${unit}`;
 }
 
 function formatStardust(value) {
   return formatNumber(value, 2);
+}
+
+function formatDarkMatter(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return "0";
+  }
+  if (Math.abs(numeric) < DARK_MATTER_FORMAT_THRESHOLD) {
+    return formatNumber(numeric, 0);
+  }
+  return formatNumber(numeric, 2);
 }
 
 function formatRate(value) {
@@ -357,21 +446,14 @@ function formatRate(value) {
     return "0.0";
   }
   if (Math.abs(numeric) < 100) {
-    return numeric.toFixed(1);
+    const digits = Math.abs(numeric) < 10 ? 2 : 1;
+    return formatRounded(numeric, digits).toFixed(digits);
   }
   return formatNumber(numeric, 1);
 }
 
 function formatPercent(value, digits = 1) {
   return `${formatNumber(value * 100, digits)}%`;
-}
-
-function getSoftcappedAmount(rawAmount) {
-  const numeric = Math.max(0, Number(rawAmount) || 0);
-  if (numeric <= 0) {
-    return 0;
-  }
-  return Math.max(SOFTCAP_MIN_FLOOR, Math.log10(numeric + 1));
 }
 
 function getGeneralUpgradeCost(baseCost, growthRate, level) {
@@ -620,38 +702,77 @@ function playUpgradeSound() {
   createPulseSound({ frequency: 520, duration: 0.1, type: "sine", gain: 0.075, sweep: 1.08 });
 }
 
+function pickPlaylistTrackIndex(mode, playlist) {
+  if (playlist.length <= 1) {
+    return 0;
+  }
+  if (audioState.currentPlaylistMode === "random") {
+    return Math.floor(Math.random() * playlist.length);
+  }
+  const indexKey = mode === "fever" ? "activeFeverTrackIndex" : "activeNormalTrackIndex";
+  const trackIndex = audioState[indexKey] % playlist.length;
+  audioState[indexKey] = (trackIndex + 1) % playlist.length;
+  return trackIndex;
+}
+
+function getActiveMusicTrack(feverMode, forceNew = false) {
+  const mode = feverMode ? "fever" : "normal";
+  const playlist = MUSIC_PLAYLISTS[mode];
+  if (!playlist || playlist.length === 0) {
+    return null;
+  }
+  const modeChanged = audioState.lastFeverMode !== feverMode;
+  if (forceNew || modeChanged || !audioState.activeTrack || audioState.activeTrack.mode !== mode) {
+    const trackIndex = pickPlaylistTrackIndex(mode, playlist);
+    audioState.activeTrack = { mode, ...playlist[trackIndex] };
+    audioState.stepsInCurrentTrack = 0;
+    audioState.lastFeverMode = feverMode;
+    return audioState.activeTrack;
+  }
+  if (audioState.stepsInCurrentTrack >= MUSIC_STEPS_PER_TRACK) {
+    const trackIndex = pickPlaylistTrackIndex(mode, playlist);
+    audioState.activeTrack = { mode, ...playlist[trackIndex] };
+    audioState.stepsInCurrentTrack = 0;
+  }
+  return audioState.activeTrack;
+}
+
 function scheduleBgmStep(stepTime, feverMode) {
   const context = ensureAudioContext();
-  const chordMap = feverMode
-    ? [220, 262, 294, 262, 220, 330, 294, 262]
-    : [196, 220, 247, 220, 196, 247, 220, 196];
+  const track = getActiveMusicTrack(feverMode);
+  if (!track) {
+    return;
+  }
+  const chordMap = track.chordMap;
   const bassRoot = chordMap[audioState.step % chordMap.length];
+  const feverLayer = feverMode;
 
   const bassOsc = context.createOscillator();
   const bassGain = context.createGain();
-  bassOsc.type = feverMode ? "sawtooth" : "triangle";
+  bassOsc.type = track.bassType;
   bassOsc.frequency.setValueAtTime(bassRoot / 2, stepTime);
   bassGain.gain.setValueAtTime(0.0001, stepTime);
-  bassGain.gain.exponentialRampToValueAtTime(feverMode ? 0.05 : 0.035, stepTime + 0.03);
+  bassGain.gain.exponentialRampToValueAtTime(feverLayer ? 0.05 : 0.035, stepTime + 0.03);
   bassGain.gain.exponentialRampToValueAtTime(0.0001, stepTime + 0.36);
   bassOsc.connect(bassGain);
   bassGain.connect(audioState.bgmGain);
   bassOsc.start(stepTime);
   bassOsc.stop(stepTime + 0.38);
 
-  const leadFreq = bassRoot * (feverMode ? 2.05 : 1.98);
+  const leadFreq = bassRoot * track.leadMultiplier;
   const leadOsc = context.createOscillator();
   const leadGain = context.createGain();
   leadOsc.type = "sine";
   leadOsc.frequency.setValueAtTime(leadFreq, stepTime);
   leadGain.gain.setValueAtTime(0.0001, stepTime);
-  leadGain.gain.exponentialRampToValueAtTime(feverMode ? 0.03 : 0.02, stepTime + 0.02);
+  leadGain.gain.exponentialRampToValueAtTime(feverLayer ? 0.03 : 0.02, stepTime + 0.02);
   leadGain.gain.exponentialRampToValueAtTime(0.0001, stepTime + 0.2);
   leadOsc.connect(leadGain);
   leadGain.connect(audioState.bgmGain);
   leadOsc.start(stepTime);
   leadOsc.stop(stepTime + 0.21);
 
+  audioState.stepsInCurrentTrack += 1;
 }
 
 function startBgmScheduler() {
@@ -666,7 +787,8 @@ function startBgmScheduler() {
     }
     const context = audioState.context;
     const feverMode = isFeverActive();
-    const tempo = feverMode ? 124 : 86;
+    const track = getActiveMusicTrack(feverMode);
+    const tempo = track?.tempo ?? (feverMode ? 124 : 86);
     const stepDuration = 60 / tempo / 2;
     while (audioState.nextNoteTime < context.currentTime + 0.18) {
       scheduleBgmStep(audioState.nextNoteTime, feverMode);
@@ -832,6 +954,36 @@ function formatCardEvolutionHtml(cardName, fromRarity, toRarity) {
   return `${safeName}(${formatRarityHtml(fromRarity)}) ➔ ${safeName}(${formatRarityHtml(toRarity)})`;
 }
 
+function formatCardEvolutionColoredHtml(cardName, fromRarity, toRarity) {
+  const safeName = escapeHtml(cardName);
+  const fromKey = normalizeRarityKey(fromRarity);
+  const toKey = normalizeRarityKey(toRarity);
+  const fromLabel = escapeHtml(getRarityLabel(fromKey));
+  const toLabel = escapeHtml(getRarityLabel(toKey));
+  const fromColor = RARITY_COLORS[fromKey] ?? RARITY_COLORS.common;
+  const toColor = RARITY_COLORS[toKey] ?? RARITY_COLORS.rare;
+  return `<span class="evolution-log-entry" style="color:${fromColor}">${safeName}(${fromLabel})</span> ➔ <span class="evolution-log-entry" style="color:${toColor}">${safeName}(${toLabel})</span>`;
+}
+
+function canReceiveGrowthLight(card) {
+  const rarityIndex = RARITY_ORDER.indexOf(card.rarity);
+  const maxIndex = RARITY_ORDER.indexOf(GROWTH_LIGHT_MAX_TARGET_RARITY);
+  return rarityIndex >= 0 && rarityIndex <= maxIndex && Boolean(getNextRarity(card.rarity));
+}
+
+function getPreservationCardKey(cardId, rarity) {
+  return `${cardId}:${rarity}`;
+}
+
+function toggleGrowthLightHelp(button, textNode) {
+  if (!button || !textNode) {
+    return;
+  }
+  const willOpen = textNode.classList.contains("hidden");
+  textNode.classList.toggle("hidden", !willOpen);
+  button.setAttribute("aria-expanded", String(willOpen));
+}
+
 function formatRarityCountsSummary(countMap) {
   return RARITIES.map((rarity, index) => {
     const countHtml = formatRarityHtml(rarity.key, String(countMap[rarity.key] ?? 0));
@@ -866,7 +1018,7 @@ function getStardustGravityMultiplier() {
   return Math.pow(1.1, state.darkMatterShop.stardustGravity.level);
 }
 
-function getWormholeAutoMultiplier() {
+function getWormholeClickMultiplier() {
   return Math.pow(1.15, state.darkMatterShop.wormholeEngine.level);
 }
 
@@ -896,7 +1048,7 @@ function renderEvolutionLogs() {
   elements.evolutionLog.innerHTML = state.evolutionLogs
     .map((log) => {
       const rarityClass = normalizeRarityKey(log.toRarity);
-      return `<article class="merge-item merge-rarity-${rarityClass}"><p>${formatCardEvolutionHtml(
+      return `<article class="merge-item merge-rarity-${rarityClass}"><p>${formatCardEvolutionColoredHtml(
         log.name,
         log.fromRarity,
         log.toRarity
@@ -924,10 +1076,6 @@ function applyPassiveCardToBuffs(cardId, rarity, buffs) {
   }
   if (cardId === "overloadClick") {
     buffs.clickPercentFactor *= 1 + value / 100;
-    return;
-  }
-  if (cardId === "spaceAcceleration") {
-    buffs.autoPercentFactor *= 1 + value / 100;
     return;
   }
   if (cardId === "feverChargeReducer") {
@@ -977,17 +1125,21 @@ function getNextRarity(rarity) {
 function cleanupPreservedCardUids() {
   const uidToCard = new Map(state.cardInventory.map((card) => [card.uid, card]));
   const slotLimit = getPreservationSlotLimit();
-  const seenCardIds = new Set();
+  const seenKeys = new Set();
   state.preservedCardUids = state.preservedCardUids
     .filter((uid, index, arr) => {
       if (!Number.isInteger(uid) || !uidToCard.has(uid) || arr.indexOf(uid) !== index) {
         return false;
       }
-      const cardId = uidToCard.get(uid)?.cardId;
-      if (!cardId || seenCardIds.has(cardId)) {
+      const card = uidToCard.get(uid);
+      if (!card) {
         return false;
       }
-      seenCardIds.add(cardId);
+      const key = getPreservationCardKey(card.cardId, card.rarity);
+      if (seenKeys.has(key)) {
+        return false;
+      }
+      seenKeys.add(key);
       return true;
     })
     .slice(0, slotLimit);
@@ -1000,11 +1152,11 @@ function renderPreservationSlots() {
     const uid = state.preservedCardUids[index];
     const card = uid ? preservedMap.get(uid) : null;
     if (!card) {
-      return `<article class="preservation-slot"><strong>SLOT ${index + 1}</strong><span aria-hidden="true">✔</span> 비어 있음</article>`;
+      return `<article class="preservation-slot empty"><strong>SLOT ${index + 1}</strong><span class="empty-slot-check" aria-hidden="true">✔</span><span>비어 있음</span></article>`;
     }
     const base = CARD_LIBRARY_BY_ID[card.cardId];
     const rarityClass = normalizeRarityKey(card.rarity);
-    return `<article class="preservation-slot filled ${rarityClass}"><strong>SLOT ${index + 1}</strong><span class="card-rarity-line">${formatRarityBracket(
+    return `<article class="preservation-slot filled ${rarityClass}" data-preserve-uid="${card.uid}" role="button" tabindex="0" title="클릭하여 보존 해제"><strong>SLOT ${index + 1}</strong><span class="card-rarity-line">${formatRarityBracket(
       card.rarity
     )}</span>${escapeHtml(base?.name ?? card.cardId)}</article>`;
   });
@@ -1016,10 +1168,54 @@ function renderPreservationSlots() {
 
 function setInventoryTabUi(tab) {
   activeInventoryTab = tab;
-  elements.inventoryTabCards.classList.toggle("active", tab === "cards");
-  elements.inventoryTabMerge.classList.toggle("active", tab === "merge");
-  elements.inventoryCardsView.classList.toggle("hidden", tab !== "cards");
-  elements.inventoryMergeView.classList.toggle("hidden", tab !== "merge");
+  elements.inventoryTabCards?.classList.toggle("active", tab === "cards");
+  elements.inventoryTabMerge?.classList.toggle("active", tab === "merge");
+  elements.inventoryCardsView?.classList.toggle("hidden", tab !== "cards");
+  elements.inventoryMergeView?.classList.toggle("hidden", tab !== "merge");
+  if (tab === "merge") {
+    renderMergeUi();
+    renderEvolutionLogs();
+  }
+  if (tab === "cards") {
+    renderInventoryUi();
+  }
+}
+
+function pushActivityLog(message, { variant = "" } = {}) {
+  activityLogs.unshift({ message, variant, at: Date.now() });
+  if (activityLogs.length > MAX_ACTIVITY_LOG_LINES) {
+    activityLogs.length = MAX_ACTIVITY_LOG_LINES;
+  }
+  renderActivityLog();
+}
+
+function renderActivityLog() {
+  if (!elements.activityLog) {
+    return;
+  }
+  if (activityLogs.length === 0) {
+    elements.activityLog.innerHTML = '<p class="log-empty">클릭하여 우주를 탐험하세요</p>';
+    return;
+  }
+  elements.activityLog.innerHTML = activityLogs
+    .map((entry) => {
+      const className = entry.variant ? `log-line ${entry.variant}` : "log-line";
+      return `<p class="${className}">${escapeHtml(entry.message)}</p>`;
+    })
+    .join("");
+}
+
+function setPanelOpen(panel, toggleButton, open) {
+  if (!panel || !toggleButton) {
+    return;
+  }
+  panel.classList.toggle("open", open);
+  toggleButton.setAttribute("aria-expanded", String(open));
+}
+
+function togglePanel(panel, toggleButton) {
+  const willOpen = !panel.classList.contains("open");
+  setPanelOpen(panel, toggleButton, willOpen);
 }
 
 function buildMergeCandidates() {
@@ -1094,24 +1290,50 @@ function toggleCardPreservation(uid) {
   cleanupPreservedCardUids();
   const targetCard = state.cardInventory.find((card) => card.uid === uid);
   if (!targetCard) {
-    return;
+    return { ok: false, message: "카드를 찾을 수 없습니다." };
   }
   const index = state.preservedCardUids.indexOf(uid);
   if (index >= 0) {
     state.preservedCardUids.splice(index, 1);
-    return;
+    return { ok: true, action: "removed" };
   }
-  const duplicateIndex = state.preservedCardUids.findIndex((preservedUid) => {
+  const hasDuplicate = state.preservedCardUids.some((preservedUid) => {
     const preservedCard = state.cardInventory.find((card) => card.uid === preservedUid);
-    return preservedCard?.cardId === targetCard.cardId;
+    return (
+      preservedCard?.cardId === targetCard.cardId &&
+      preservedCard?.rarity === targetCard.rarity &&
+      preservedUid !== uid
+    );
   });
-  if (duplicateIndex >= 0) {
-    state.preservedCardUids.splice(duplicateIndex, 1);
+  if (hasDuplicate) {
+    return { ok: false, message: "이미 장착된 중복 카드입니다." };
   }
   if (state.preservedCardUids.length >= getPreservationSlotLimit()) {
-    return;
+    return { ok: false, message: "보존 슬롯이 가득 찼습니다." };
   }
   state.preservedCardUids.push(uid);
+  return { ok: true, action: "added" };
+}
+
+function refreshPreservationUi() {
+  cleanupPreservedCardUids();
+  renderPreservationSlots();
+  if (!elements.inventoryGrid) {
+    return;
+  }
+  const cardNodes = elements.inventoryGrid.querySelectorAll(".inventory-card");
+  if (cardNodes.length === 0) {
+    return;
+  }
+  cardNodes.forEach((cardNode) => {
+    const uid = Number(cardNode.getAttribute("data-card-uid"));
+    const isPreserved = state.preservedCardUids.includes(uid);
+    cardNode.classList.toggle("selected-preserve", isPreserved);
+    const countNode = cardNode.querySelector(".inventory-count");
+    if (countNode) {
+      countNode.textContent = isPreserved ? "보존 지정됨 (클릭하여 해제)" : "클릭하여 보존 지정";
+    }
+  });
 }
 
 function renderInventoryUi() {
@@ -1171,26 +1393,52 @@ function renderInventoryUi() {
       <p class="card-rarity-line">${formatRarityHtml(cardInstance.rarity)} | #${cardInstance.uid}</p>
       <p>${cardBase.kind === "passive" ? "영구 패시브" : "일시 효과"}</p>
       <p>${cardBase.describe(value)}</p>
-      <p class="inventory-count">${state.preservedCardUids.includes(cardInstance.uid) ? "보존 지정됨" : "클릭하여 보존 지정"}</p>`;
-    cardNode.addEventListener("click", () => {
-      toggleCardPreservation(cardInstance.uid);
-      renderInventoryUi();
+      <p class="inventory-count">${state.preservedCardUids.includes(cardInstance.uid) ? "보존 지정됨 (클릭하여 해제)" : "클릭하여 보존 지정"}</p>`;
+    cardNode.setAttribute("data-card-uid", String(cardInstance.uid));
+    cardNode.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const result = toggleCardPreservation(cardInstance.uid);
+      if (!result.ok && result.message) {
+        showImpactToast(result.message);
+        return;
+      }
+      refreshPreservationUi();
       saveState();
     });
     elements.inventoryGrid.appendChild(cardNode);
   });
 }
 
+function getClickFlatBonus() {
+  return baseStats.clickStardust + state.clickUpgrade.level * CLICK_UPGRADE_FLAT_PER_LEVEL;
+}
+
+function getRawClickMultiplier(customBuffs = state.cardBuffs) {
+  return (
+    customBuffs.clickPercentFactor *
+    getFeverMultiplier() *
+    getWormholeClickMultiplier() *
+    getStardustGravityMultiplier()
+  );
+}
+
+function compressStardustFromMultiplier(rawMultiplier) {
+  const numeric = Math.max(0, Number(rawMultiplier) || 0);
+  if (numeric <= 1) {
+    return 0;
+  }
+  return Math.floor(Math.log10(numeric + 1) * STARDUST_LOG_SCALE);
+}
+
 function buildStatSnapshot(customBuffs = state.cardBuffs) {
-  const shopLayer = getShopMultiplier();
-  const clickLayer = customBuffs.clickPercentFactor;
-  const autoLayer = customBuffs.autoPercentFactor;
-  const clickCore = getSoftcappedAmount(baseStats.clickStardust * shopLayer);
-  const autoCore = getSoftcappedAmount(baseStats.autoProduction * shopLayer);
-  const feverLayer = getFeverMultiplier();
+  const flat = getClickFlatBonus();
+  const rawMult =
+    customBuffs.clickPercentFactor *
+    getFeverMultiplier() *
+    getWormholeClickMultiplier() *
+    getStardustGravityMultiplier();
   return {
-    clickGain: (clickCore + state.clickUpgrade.level * CLICK_UPGRADE_FLAT_PER_LEVEL) * clickLayer * feverLayer,
-    perSecond: (autoCore + state.autoMiner.amount * AUTO_MINER_FLAT_PER_LEVEL) * autoLayer * feverLayer,
+    clickGain: compressStardustFromMultiplier(rawMult) + flat,
     criticalChance: getCriticalChanceWithBuffs(customBuffs)
   };
 }
@@ -1208,17 +1456,14 @@ function previewCardText(card) {
   const before = buildStatSnapshot();
   if (card.baseId === "starBreak") {
     const value = getCardValue(card.baseId, card.rarityClass);
-    const burstGain = getBurstGainFromSeconds(value);
-    return `획득량 미리보기: 스타더스트 +${formatRate(burstGain)} (즉시 지급)${evolutionSuffix}`;
+    const burstGain = getBurstGainFromClicks(value);
+    return `획득량 미리보기: 스타더스트 +${formatRate(burstGain)} (${formatRounded(value, 0)}회 클릭 분량, 즉시 지급)${evolutionSuffix}`;
   }
   const virtualBuffs = { ...state.cardBuffs };
   applyPassiveCardToBuffs(card.baseId, card.rarityClass, virtualBuffs);
   const after = buildStatSnapshot(virtualBuffs);
   if (card.baseId === "overloadClick") {
     return `클릭 생산량: ${formatDelta(before.clickGain, after.clickGain, 1)}${evolutionSuffix}`;
-  }
-  if (card.baseId === "spaceAcceleration") {
-    return `자동 생산량/초: ${formatDelta(before.perSecond, after.perSecond, 1)}${evolutionSuffix}`;
   }
   if (card.baseId === "xpAmplify") {
     const beforeXp = getClickXpGain();
@@ -1262,11 +1507,7 @@ function previewCardText(card) {
     const afterFever = FEVER_MULTIPLIER * virtualBuffs.feverMultiplierFactor;
     return `피버 배율: x${formatRate(beforeFever)} ➜ x${formatRate(afterFever)}${evolutionSuffix}`;
   }
-  return `클릭 생산량: ${formatDelta(before.clickGain, after.clickGain, 1)} / 자동 생산량: ${formatDelta(
-    before.perSecond,
-    after.perSecond,
-    1
-  )}${evolutionSuffix}`;
+  return `클릭 생산량: ${formatDelta(before.clickGain, after.clickGain, 1)}${evolutionSuffix}`;
 }
 
 function getXpRequiredForLevel(level) {
@@ -1278,16 +1519,8 @@ function getClickXpGain() {
   return baseXp * state.cardBuffs.xpFactor;
 }
 
-function getPermanentGainMultiplier() {
-  return Math.pow(1.5, state.darkMatterShop.distortion.level);
-}
-
 function getClickCardBonus() {
   return state.cardBuffs.clickPercentFactor;
-}
-
-function getAutoCardBonus() {
-  return state.cardBuffs.autoPercentFactor;
 }
 
 function getFeverTriggerClicksRequired(customBuffs = state.cardBuffs) {
@@ -1339,10 +1572,6 @@ function getFeverDurationMs() {
   );
 }
 
-function getBasePerSecondRate() {
-  return baseStats.autoProduction;
-}
-
 function isFeverActive() {
   return Date.now() < state.feverUntil;
 }
@@ -1354,50 +1583,31 @@ function getFeverBonus() {
   return FEVER_MULTIPLIER * state.cardBuffs.feverMultiplierFactor * getFeverHighwayGainMultiplier() - 1;
 }
 
-function getShopMultiplier() {
-  return getPermanentGainMultiplier();
-}
-
 function getFeverMultiplier() {
   return 1 + getFeverBonus();
 }
 
-function getPerSecondRate() {
-  const shopLayer = getShopMultiplier();
-  const cardLayer = getAutoCardBonus();
-  const wormholeLayer = getWormholeAutoMultiplier();
-  const stardustLayer = getStardustGravityMultiplier();
-  const rawGain = getBasePerSecondRate() * shopLayer;
-  const compressedGain = getSoftcappedAmount(rawGain);
-  return (compressedGain + state.autoMiner.amount * AUTO_MINER_FLAT_PER_LEVEL) * cardLayer * wormholeLayer * getFeverMultiplier() * stardustLayer;
+function getClickGain(extraDamageMultiplier = 1) {
+  const flat = getClickFlatBonus();
+  const rawMult = getRawClickMultiplier() * Math.max(1, Number(extraDamageMultiplier) || 1);
+  return compressStardustFromMultiplier(rawMult) + flat;
 }
 
-function getClickGain() {
-  const baseClick = baseStats.clickStardust;
-  const shopLayer = getShopMultiplier();
-  const cardLayer = getClickCardBonus();
-  const stardustLayer = getStardustGravityMultiplier();
-  const rawGain = baseClick * shopLayer;
-  const compressedGain = getSoftcappedAmount(rawGain);
-  return (compressedGain + state.clickUpgrade.level * CLICK_UPGRADE_FLAT_PER_LEVEL) * cardLayer * getFeverMultiplier() * stardustLayer;
-}
-
-function getBurstGainFromSeconds(seconds) {
-  const burstSeconds = Math.max(0, Number(seconds) || 0);
-  if (burstSeconds <= 0) {
+function getBurstGainFromClicks(clickCount) {
+  const burstClicks = Math.max(0, Number(clickCount) || 0);
+  if (burstClicks <= 0) {
     return 0;
   }
-  const rawGain = getPerSecondRate() * burstSeconds;
-  return getSoftcappedAmount(rawGain);
+  return getClickGain() * burstClicks;
 }
 
 function getRebirthDarkMatterGain() {
   if (state.stardust < REBIRTH_THRESHOLD) {
     return 0;
   }
-  const baseGain = Math.floor(state.stardust / REBIRTH_THRESHOLD);
+  const logBase = Math.log10(Math.max(1, state.stardust));
   const rebirthBonus = 1 + state.darkMatterShop.singularity.level * 0.5;
-  return Math.floor(baseGain * rebirthBonus);
+  return Math.floor(Math.pow(logBase, 2) * rebirthBonus);
 }
 
 function saveState() {
@@ -1408,10 +1618,6 @@ function saveState() {
     level: state.level,
     xp: state.xp,
     clicksTowardFever: state.clicksTowardFever,
-    autoMiner: {
-      price: state.autoMiner.price,
-      amount: state.autoMiner.amount
-    },
     clickUpgrade: {
       price: state.clickUpgrade.price,
       level: state.clickUpgrade.level
@@ -1431,7 +1637,6 @@ function saveState() {
       }
     },
     darkMatterShop: {
-      distortion: { price: state.darkMatterShop.distortion.price, level: state.darkMatterShop.distortion.level },
       singularity: { price: state.darkMatterShop.singularity.price, level: state.darkMatterShop.singularity.level },
       preservationSlots: {
         price: state.darkMatterShop.preservationSlots.price,
@@ -1455,7 +1660,6 @@ function saveState() {
     stats: {
       totalClicks: state.stats.totalClicks,
       meteorClicks: state.stats.meteorClicks,
-      autoMinersPurchased: state.stats.autoMinersPurchased
     },
     achievements: {
       cosmicPioneer: state.achievements.cosmicPioneer,
@@ -1485,18 +1689,13 @@ function loadState() {
     state.xp = Math.max(0, Number(parsed.xp) || 0);
     state.clicksTowardFever = Math.max(0, Math.floor(Number(parsed.clicksTowardFever) || 0));
 
-    state.autoMiner.price = Math.max(
-      GENERAL_UPGRADE_COST.autoMiner.base,
-      Number(parsed.autoMiner?.price) || GENERAL_UPGRADE_COST.autoMiner.base
-    );
-    state.autoMiner.amount = Math.max(0, Number(parsed.autoMiner?.amount) || 0);
-
     const legacyClickLevel = Math.max(0, Number(parsed.milkyDrive?.amount) || 0);
+    const legacyAutoMinerLevel = Math.max(0, Number(parsed.autoMiner?.amount) || 0);
     state.clickUpgrade.price = Math.max(
       GENERAL_UPGRADE_COST.clickUpgrade.base,
       Number(parsed.clickUpgrade?.price) || GENERAL_UPGRADE_COST.clickUpgrade.base
     );
-    state.clickUpgrade.level = Math.max(legacyClickLevel, Number(parsed.clickUpgrade?.level) || 0);
+    state.clickUpgrade.level = Math.max(legacyClickLevel, legacyAutoMinerLevel, Number(parsed.clickUpgrade?.level) || 0);
     state.xpDrive.price = Math.max(
       GENERAL_UPGRADE_COST.xpDrive.base,
       Number(parsed.xpDrive?.price) || GENERAL_UPGRADE_COST.xpDrive.base
@@ -1510,9 +1709,6 @@ function loadState() {
       Number(parsed.criticalShop?.multiplier?.price) || 3000
     );
     state.criticalShop.multiplier.level = Math.max(0, Number(parsed.criticalShop?.multiplier?.level) || 0);
-
-    state.darkMatterShop.distortion.price = Math.max(1, Number(parsed.darkMatterShop?.distortion?.price) || 1);
-    state.darkMatterShop.distortion.level = Math.max(0, Number(parsed.darkMatterShop?.distortion?.level) || 0);
 
     state.darkMatterShop.singularity.price = Math.max(3, Number(parsed.darkMatterShop?.singularity?.price) || 3);
     state.darkMatterShop.singularity.level = Math.max(0, Number(parsed.darkMatterShop?.singularity?.level) || 0);
@@ -1554,6 +1750,7 @@ function loadState() {
           .filter(
             (card) =>
               CARD_LIBRARY_BY_ID[card.cardId] &&
+              card.cardId !== "spaceAcceleration" &&
               RARITY_ORDER.includes(card.rarity) &&
               isPersistentInventoryCard(card.cardId)
           )
@@ -1585,11 +1782,6 @@ function loadState() {
     cleanupPreservedCardUids();
     recalculateCardBuffs();
     state.clickPower = baseStats.clickStardust + state.clickUpgrade.level * CLICK_UPGRADE_FLAT_PER_LEVEL;
-    state.autoMiner.price = getGeneralUpgradeCost(
-      GENERAL_UPGRADE_COST.autoMiner.base,
-      GENERAL_UPGRADE_COST.autoMiner.growth,
-      state.autoMiner.amount
-    );
     state.clickUpgrade.price = getGeneralUpgradeCost(
       GENERAL_UPGRADE_COST.clickUpgrade.base,
       GENERAL_UPGRADE_COST.clickUpgrade.growth,
@@ -1604,8 +1796,6 @@ function loadState() {
 
     state.stats.totalClicks = Math.max(0, Number(parsed.stats?.totalClicks) || 0);
     state.stats.meteorClicks = Math.max(0, Number(parsed.stats?.meteorClicks) || 0);
-    state.stats.autoMinersPurchased = Math.max(0, Number(parsed.stats?.autoMinersPurchased) || 0);
-
     state.achievements.cosmicPioneer = Boolean(parsed.achievements?.cosmicPioneer);
     state.achievements.stardustTycoon = Boolean(parsed.achievements?.stardustTycoon);
     state.achievements.satelliteCollector = Boolean(parsed.achievements?.satelliteCollector);
@@ -1634,7 +1824,7 @@ function updateFeverLabel() {
 }
 
 function updateSatellites() {
-  const displayCount = Math.min(state.autoMiner.amount, 16);
+  const displayCount = Math.min(state.clickUpgrade.level, 16);
   elements.satelliteLayer.innerHTML = "";
 
   if (displayCount <= 0) {
@@ -1643,7 +1833,7 @@ function updateSatellites() {
   }
 
   elements.satelliteLayer.classList.add("rotating");
-  const distance = 155;
+  const distance = 95;
 
   for (let i = 0; i < displayCount; i += 1) {
     const satellite = document.createElement("span");
@@ -1684,7 +1874,7 @@ function checkAchievements() {
   if (state.stardust >= 1000000) {
     unlockAchievement("stardustTycoon");
   }
-  if (state.stats.autoMinersPurchased >= 10) {
+  if (state.clickUpgrade.level >= 10) {
     unlockAchievement("satelliteCollector");
   }
   if (state.stats.meteorClicks >= 5) {
@@ -1696,16 +1886,6 @@ function updateAchievementList() {
   Object.entries(elements.achievementNodes).forEach(([id, node]) => {
     node.classList.toggle("unlocked", Boolean(state.achievements[id]));
   });
-}
-
-function setPanelOpen(panel, toggleButton, open) {
-  panel.classList.toggle("open", open);
-  toggleButton.setAttribute("aria-expanded", String(open));
-}
-
-function togglePanel(panel, toggleButton) {
-  const willOpen = !panel.classList.contains("open");
-  setPanelOpen(panel, toggleButton, willOpen);
 }
 
 function closePanels() {
@@ -1816,12 +1996,12 @@ function openRebirthConfirmModal(gain) {
   if (isRebirthConfirmOpen()) {
     return Promise.resolve(false);
   }
-  const gainText = formatNumber(gain, 0);
+  const gainText = formatDarkMatter(gain);
   const desc = document.getElementById("rebirth-confirm-description");
   if (desc) {
     desc.innerHTML =
-      `레벨/XP/보유 카드가 초기화됩니다.<br /><strong>현재 카드 저장소에 있는 카드를 제외하고 모든 카드가 삭제됩니다.</strong><br />` +
-      `환생 시 Dark Matter ${gainText}개를 획득합니다.`;
+      `레벨/XP/보유 카드가 초기화됩니다.<br /><strong class="rebirth-card-warning">현재 카드 저장소에 있는 카드를 제외하고 모든 카드가 삭제됩니다.</strong><br />` +
+      `환생 시 Dark Matter <strong>${gainText}</strong>개를 획득합니다.`;
   }
   document.body.classList.add("reset-confirm-open");
   elements.rebirthConfirmOverlay.classList.add("show");
@@ -1844,9 +2024,7 @@ function addCardToInventory(cardId, rarity) {
 }
 
 function tryEvolveRandomOwnedCard() {
-  const upgradable = state.cardInventory.filter(
-    (card) => RARITY_ORDER.includes(card.rarity) && card.rarity !== "mythic"
-  );
+  const upgradable = state.cardInventory.filter((card) => canReceiveGrowthLight(card));
   if (upgradable.length === 0) {
     return null;
   }
@@ -1881,6 +2059,7 @@ function performCardMerge(cardId, rarity, mergeItemNode = null) {
   playMergeImpactSound();
   spawnCosmicSelectionBurst(nextRarity);
   showImpactToast(`합성 성공! ${formatRarityBracket(nextRarity)} 등급 획득!`, { html: true });
+  pushActivityLog(`합성 성공: ${formatRarityBracket(nextRarity)}`);
   return true;
 }
 
@@ -1962,8 +2141,8 @@ function applyLevelupCardSelection(card) {
   }
   if (baseCard?.kind === "burst") {
     const burstValue = getCardValue(card.baseId, card.rarityClass);
-    state.stardust += getBurstGainFromSeconds(burstValue);
-    notice = `${rarityNotice} 즉시 ${formatRounded(burstValue, 0)}초 분량 보너스 지급 (소모형)`;
+    state.stardust += getBurstGainFromClicks(burstValue);
+    notice = `${rarityNotice} 즉시 ${formatRounded(burstValue, 0)}회 클릭 분량 보너스 지급 (소모형)`;
   }
 
   if (baseCard.kind === "passive") {
@@ -1977,7 +2156,8 @@ function applyLevelupCardSelection(card) {
       return `${notice} + ${escapeHtml("성장의 빛 발동 실패(진화 가능한 카드 없음)")}`;
     }
     const evolvedBase = CARD_LIBRARY_BY_ID[evolved.cardId];
-    return `${notice} + 성장의 빛 발동! ${formatCardEvolutionHtml(
+    renderEvolutionLogs();
+    return `${notice} + 성장의 빛 발동! ${formatCardEvolutionColoredHtml(
       evolvedBase?.name ?? evolved.cardId,
       evolved.fromRarity,
       evolved.toRarity
@@ -2098,43 +2278,20 @@ function updateView() {
   const criticalChance = getCriticalChance();
   const criticalMultiplier = getCriticalMultiplier();
   const clickXpGain = getClickXpGain();
-  const perSecondMultiplier = getShopMultiplier() * getAutoCardBonus() * getWormholeAutoMultiplier() * getFeverMultiplier() * getStardustGravityMultiplier();
-  const clickMultiplier = getShopMultiplier() * getClickCardBonus() * getFeverMultiplier() * getStardustGravityMultiplier();
+  const clickMultiplier =
+    getClickCardBonus() * getWormholeClickMultiplier() * getFeverMultiplier() * getStardustGravityMultiplier();
 
   elements.stardust.textContent = formatStardust(state.stardust);
-  elements.darkMatter.textContent = formatNumber(state.darkMatter, 0);
-  elements.perSecond.textContent = formatRate(getPerSecondRate());
+  elements.darkMatter.textContent = formatDarkMatter(state.darkMatter);
   elements.clickPower.textContent = formatRate(getClickGain());
+  if (elements.rebirthHint) {
+    elements.rebirthHint.textContent = `조건: Stardust ${formatNumber(REBIRTH_THRESHOLD, 0)} 이상`;
+  }
 
-  elements.autoMinerTitle.textContent = `자동 생산 강화 | Lv.${formatNumber(state.autoMiner.amount, 0)}`;
-  elements.autoMinerCost.textContent = formatNumber(state.autoMiner.price, 0);
   elements.clickUpgradeTitle.textContent = `클릭 강화 | Lv.${formatNumber(state.clickUpgrade.level, 0)}`;
   elements.clickUpgradeCost.textContent = formatNumber(state.clickUpgrade.price, 0);
   elements.xpDriveTitle.textContent = `XP 부스터 강화 | Lv.${formatNumber(state.xpDrive.level, 0)}`;
   elements.xpDriveCost.textContent = formatNumber(state.xpDrive.price, 0);
-  const autoPlus5 = getUpgradeTotalCost(
-    GENERAL_UPGRADE_COST.autoMiner.base,
-    GENERAL_UPGRADE_COST.autoMiner.growth,
-    state.autoMiner.amount,
-    5
-  );
-  const autoPlus10 = getUpgradeTotalCost(
-    GENERAL_UPGRADE_COST.autoMiner.base,
-    GENERAL_UPGRADE_COST.autoMiner.growth,
-    state.autoMiner.amount,
-    10
-  );
-  const autoMaxPlan = calculateUpgradePurchasePlan({
-    baseCost: GENERAL_UPGRADE_COST.autoMiner.base,
-    growthRate: GENERAL_UPGRADE_COST.autoMiner.growth,
-    currentLevel: state.autoMiner.amount,
-    budget: state.stardust,
-    targetCount: Number.POSITIVE_INFINITY
-  });
-  elements.autoMinerBulkCost.textContent = `+5 비용 ${formatNumber(autoPlus5, 0)} | +10 비용 ${formatNumber(
-    autoPlus10,
-    0
-  )} | 최대 비용 ${formatNumber(autoMaxPlan.totalCost, 0)} (${formatNumber(autoMaxPlan.count, 0)}강)`;
   const clickPlus5 = getUpgradeTotalCost(
     GENERAL_UPGRADE_COST.clickUpgrade.base,
     GENERAL_UPGRADE_COST.clickUpgrade.growth,
@@ -2234,11 +2391,6 @@ function updateView() {
     )} (${formatNumber(multiplierMax.count, 0)}강)`;
   }
 
-  elements.buyAutoMiner.disabled = !canPurchaseUpgradeBulk({
-    baseCost: GENERAL_UPGRADE_COST.autoMiner.base,
-    growthRate: GENERAL_UPGRADE_COST.autoMiner.growth,
-    currentLevel: state.autoMiner.amount
-  });
   elements.buyClickUpgrade.disabled = !canPurchaseUpgradeBulk({
     baseCost: GENERAL_UPGRADE_COST.clickUpgrade.base,
     growthRate: GENERAL_UPGRADE_COST.clickUpgrade.growth,
@@ -2252,20 +2404,17 @@ function updateView() {
   elements.buyCriticalChanceShop.disabled = !canPurchaseCriticalBulk("chance");
   elements.buyCriticalMultiplierShop.disabled = !canPurchaseCriticalBulk("multiplier");
 
-  elements.distortionCost.textContent = formatNumber(state.darkMatterShop.distortion.price, 0);
-  elements.distortionLevel.textContent = formatNumber(state.darkMatterShop.distortion.level, 0);
-  elements.singularityCost.textContent = formatNumber(state.darkMatterShop.singularity.price, 0);
+  elements.singularityCost.textContent = formatDarkMatter(state.darkMatterShop.singularity.price);
   elements.singularityLevel.textContent = formatNumber(state.darkMatterShop.singularity.level, 0);
-  elements.preservationSlotUpgradeCost.textContent = formatNumber(state.darkMatterShop.preservationSlots.price, 0);
+  elements.preservationSlotUpgradeCost.textContent = formatDarkMatter(state.darkMatterShop.preservationSlots.price);
   elements.preservationSlotUpgradeLevel.textContent = formatNumber(state.darkMatterShop.preservationSlots.level, 0);
-  elements.wormholeEngineCost.textContent = formatNumber(state.darkMatterShop.wormholeEngine.price, 0);
+  elements.wormholeEngineCost.textContent = formatDarkMatter(state.darkMatterShop.wormholeEngine.price);
   elements.wormholeEngineLevel.textContent = formatNumber(state.darkMatterShop.wormholeEngine.level, 0);
-  elements.stardustGravityCost.textContent = formatNumber(state.darkMatterShop.stardustGravity.price, 0);
+  elements.stardustGravityCost.textContent = formatDarkMatter(state.darkMatterShop.stardustGravity.price);
   elements.stardustGravityLevel.textContent = formatNumber(state.darkMatterShop.stardustGravity.level, 0);
-  elements.feverHighwayCost.textContent = formatNumber(state.darkMatterShop.feverHighway.price, 0);
+  elements.feverHighwayCost.textContent = formatDarkMatter(state.darkMatterShop.feverHighway.price);
   elements.feverHighwayLevel.textContent = formatNumber(state.darkMatterShop.feverHighway.level, 0);
 
-  elements.buyDistortion.disabled = state.darkMatter < state.darkMatterShop.distortion.price;
   elements.buySingularity.disabled = state.darkMatter < state.darkMatterShop.singularity.price;
   elements.buyPreservationSlotUpgrade.disabled =
     state.darkMatter < state.darkMatterShop.preservationSlots.price ||
@@ -2275,7 +2424,7 @@ function updateView() {
   elements.buyFeverHighway.disabled = state.darkMatter < state.darkMatterShop.feverHighway.price;
 
   elements.rebirthButton.disabled = state.stardust < REBIRTH_THRESHOLD || rebirthGain <= 0;
-  elements.rebirthButton.textContent = `블랙홀 개방 (환생 +${rebirthGain} DM)`;
+  elements.rebirthButton.textContent = `블랙홀 개방 (환생 +${formatDarkMatter(rebirthGain)} DM)`;
   elements.statCriticalChance.textContent = formatPercent(criticalChance, 2);
   elements.statCriticalMultiplier.textContent = `x${formatRate(criticalMultiplier)}`;
   elements.statMeteorChance.textContent = `${clicksUntilFever}회 (${formatPercent(feverProgress, 1)})`;
@@ -2283,10 +2432,8 @@ function updateView() {
     (state.cardBuffs.feverDurationFactor - 1) * 100,
     0
   )}%)`;
-  elements.statPerSecondMultiplier.textContent = `x${formatRate(perSecondMultiplier)}`;
   elements.statClickMultiplier.textContent = `x${formatRate(clickMultiplier)}`;
   elements.statCardClickMultiplier.textContent = `x${formatRate(state.cardBuffs.clickPercentFactor)}`;
-  elements.statCardAutoMultiplier.textContent = `x${formatRate(state.cardBuffs.autoPercentFactor)}`;
   elements.statXpGain.textContent = formatRate(clickXpGain);
   elements.statXpMultiplier.textContent = `x${formatRate(state.cardBuffs.xpFactor)}`;
 
@@ -2326,10 +2473,11 @@ function spendDarkMatter(cost) {
 }
 
 function updateBulkUpgradeUi() {
-  if (!elements.bulkUpgradeControls) {
+  const bulkControls = document.getElementById("bulk-upgrade-controls");
+  if (!bulkControls) {
     return;
   }
-  elements.bulkUpgradeControls.querySelectorAll("[data-bulk]").forEach((button) => {
+  bulkControls.querySelectorAll("[data-bulk]").forEach((button) => {
     const value = button.getAttribute("data-bulk");
     const isMax = selectedBulkPurchase === Number.POSITIVE_INFINITY;
     const isActive = value === "max" ? isMax : String(selectedBulkPurchase) === value;
@@ -2500,6 +2648,7 @@ function startFever() {
   state.stats.meteorClicks += 1;
   state.feverUntil = Date.now() + getFeverDurationMs();
   state.clicksTowardFever = 0;
+  pushActivityLog("피버 타임 발동!");
   checkAchievements();
   updateView();
   saveState();
@@ -2557,8 +2706,6 @@ async function runRebirth() {
   state.xp = 0;
   state.clicksTowardFever = 0;
   state.pendingLevelUps = 0;
-  state.autoMiner.amount = 0;
-  state.autoMiner.price = GENERAL_UPGRADE_COST.autoMiner.base;
   state.clickUpgrade.level = 0;
   state.clickUpgrade.price = GENERAL_UPGRADE_COST.clickUpgrade.base;
   state.xpDrive.level = 0;
@@ -2578,6 +2725,7 @@ async function runRebirth() {
     openLevelupModal();
   }
 
+  pushActivityLog(`환생 완료! Dark Matter +${formatDarkMatter(gain)}`);
   updateView();
   saveState();
 }
@@ -2609,10 +2757,13 @@ elements.planetButton.addEventListener("click", (event) => {
     return;
   }
 
-  const baseClickGain = getClickGain();
   const criticalHit = Math.random() < getCriticalChance();
-  const clickGain = criticalHit ? baseClickGain * getCriticalMultiplier() : baseClickGain;
+  const clickGain = getClickGain(criticalHit ? getCriticalMultiplier() : 1);
   state.stardust += clickGain;
+  pushActivityLog(
+    criticalHit ? `CRIT +${formatRate(clickGain)} 스타더스트` : `+${formatRate(clickGain)} 스타더스트`,
+    { variant: criticalHit ? "crit" : "" }
+  );
   playClickSound(criticalHit);
   state.stats.totalClicks += 1;
   if (!isFeverActive()) {
@@ -2629,32 +2780,6 @@ elements.planetButton.addEventListener("click", (event) => {
   createFloatingPlus(x, y, clickGain, criticalHit);
   createClickParticles(x, y, criticalHit);
 
-  checkAchievements();
-  updateView();
-  saveState();
-});
-
-elements.buyAutoMiner.addEventListener("click", () => {
-  const purchased = purchaseUpgradeBulk(
-    {
-      baseCost: GENERAL_UPGRADE_COST.autoMiner.base,
-      growthRate: GENERAL_UPGRADE_COST.autoMiner.growth,
-      currentLevel: state.autoMiner.amount
-    },
-    (count) => {
-    state.autoMiner.amount += count;
-    state.stats.autoMinersPurchased += count;
-    state.autoMiner.price = getGeneralUpgradeCost(
-      GENERAL_UPGRADE_COST.autoMiner.base,
-      GENERAL_UPGRADE_COST.autoMiner.growth,
-      state.autoMiner.amount
-    );
-    }
-  );
-  if (!purchased) {
-    return;
-  }
-  playUpgradeSound();
   checkAchievements();
   updateView();
   saveState();
@@ -2709,7 +2834,7 @@ elements.buyXpDrive.addEventListener("click", () => {
   saveState();
 });
 
-elements.bulkUpgradeControls?.querySelectorAll("[data-bulk]").forEach((button) => {
+document.getElementById("bulk-upgrade-controls")?.querySelectorAll("[data-bulk]").forEach((button) => {
   button.addEventListener("click", () => {
     const bulkValue = button.getAttribute("data-bulk");
     if (bulkValue === "max") {
@@ -2740,18 +2865,6 @@ elements.buyCriticalMultiplierShop.addEventListener("click", () => {
     return;
   }
   playUpgradeSound();
-  updateView();
-  saveState();
-});
-
-elements.buyDistortion.addEventListener("click", () => {
-  const upgrade = state.darkMatterShop.distortion;
-  if (!spendDarkMatter(upgrade.price)) {
-    return;
-  }
-  playUpgradeSound();
-  upgrade.level += 1;
-  upgrade.price = raiseDarkMatterPrice(upgrade.price);
   updateView();
   saveState();
 });
@@ -2820,37 +2933,56 @@ elements.buyFeverHighway.addEventListener("click", () => {
   saveState();
 });
 
-elements.achievementsToggle.addEventListener("click", (event) => {
+elements.achievementsToggle?.addEventListener("click", (event) => {
   event.stopPropagation();
   togglePanel(elements.achievementPanel, elements.achievementsToggle);
 });
 
-elements.dmLabToggle.addEventListener("click", (event) => {
+elements.dmLabToggle?.addEventListener("click", (event) => {
   event.stopPropagation();
   togglePanel(elements.darkMatterLab, elements.dmLabToggle);
 });
 
-elements.statsToggle.addEventListener("click", (event) => {
+elements.statsToggle?.addEventListener("click", (event) => {
   event.stopPropagation();
   togglePanel(elements.statPanel, elements.statsToggle);
 });
 
-elements.codexToggle.addEventListener("click", (event) => {
+elements.codexToggle?.addEventListener("click", (event) => {
   event.stopPropagation();
   togglePanel(elements.codexPanel, elements.codexToggle);
 });
 
-elements.inventoryToggle.addEventListener("click", (event) => {
+elements.inventoryToggle?.addEventListener("click", (event) => {
   event.stopPropagation();
   togglePanel(elements.inventoryPanel, elements.inventoryToggle);
 });
 
-elements.inventoryTabCards.addEventListener("click", () => {
+elements.inventoryTabCards?.addEventListener("click", () => {
   setInventoryTabUi("cards");
 });
 
-elements.inventoryTabMerge.addEventListener("click", () => {
+elements.inventoryTabMerge?.addEventListener("click", () => {
   setInventoryTabUi("merge");
+});
+
+elements.preservationSlots?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const slotNode = event.target.closest(".preservation-slot.filled");
+  if (!slotNode) {
+    return;
+  }
+  const uid = Number(slotNode.getAttribute("data-preserve-uid"));
+  if (!Number.isInteger(uid)) {
+    return;
+  }
+  const result = toggleCardPreservation(uid);
+  if (!result.ok && result.message) {
+    showImpactToast(result.message);
+    return;
+  }
+  refreshPreservationUi();
+  saveState();
 });
 
 document.addEventListener("click", (event) => {
@@ -2860,11 +2992,12 @@ document.addEventListener("click", (event) => {
   }
 
   const clickedAchievementUi =
-    elements.achievementPanel.contains(target) || elements.achievementsToggle.contains(target);
-  const clickedDmUi = elements.darkMatterLab.contains(target) || elements.dmLabToggle.contains(target);
-  const clickedStatUi = elements.statPanel.contains(target) || elements.statsToggle.contains(target);
-  const clickedCodexUi = elements.codexPanel.contains(target) || elements.codexToggle.contains(target);
-  const clickedInventoryUi = elements.inventoryPanel.contains(target) || elements.inventoryToggle.contains(target);
+    elements.achievementPanel?.contains(target) || elements.achievementsToggle?.contains(target);
+  const clickedDmUi = elements.darkMatterLab?.contains(target) || elements.dmLabToggle?.contains(target);
+  const clickedStatUi = elements.statPanel?.contains(target) || elements.statsToggle?.contains(target);
+  const clickedCodexUi = elements.codexPanel?.contains(target) || elements.codexToggle?.contains(target);
+  const clickedInventoryUi =
+    elements.inventoryPanel?.contains(target) || elements.inventoryToggle?.contains(target);
 
   if (!clickedAchievementUi) {
     setPanelOpen(elements.achievementPanel, elements.achievementsToggle, false);
@@ -2929,24 +3062,28 @@ elements.rebirthConfirmOverlay.addEventListener("click", (event) => {
 setInterval(() => {
   const feverActive = isFeverActive();
   wasFeverActiveLastTick = feverActive;
-
-  if (!state.isLevelupOpen) {
-    const gain = getPerSecondRate();
-    if (gain > 0) {
-      state.stardust += gain;
-    }
-  }
-
   checkAchievements();
-  updateView();
-  saveState();
+  updateFeverLabel();
+  updateLevelPanel();
 }, 1000);
+
+elements.growthLightHelpToggle?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  toggleGrowthLightHelp(elements.growthLightHelpToggle, elements.growthLightHelpText);
+});
+
+elements.growthLightHelpInventory?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  toggleGrowthLightHelp(elements.growthLightHelpInventory, elements.growthLightHelpInventoryText);
+});
 
 loadState();
 wasFeverActiveLastTick = isFeverActive();
 checkAchievements();
 renderCardCodex();
+renderActivityLog();
 updateAudioToggleUi();
 setInventoryTabUi("cards");
 updateBulkUpgradeUi();
 updateView();
+pushActivityLog("우주 클리커에 오신 것을 환영합니다.");

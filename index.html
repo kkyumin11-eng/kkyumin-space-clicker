@@ -31,6 +31,7 @@
     <span class="corner-icon">🔊</span>
     <span class="corner-label">음향</span>
   </button>
+
   <div id="levelup-overlay" class="levelup-overlay" aria-live="polite">
     <div class="levelup-modal">
       <h2>LEVEL UP</h2>
@@ -39,14 +40,9 @@
       <div id="levelup-preview" class="levelup-preview">카드를 선택하면 예상 스탯 변화가 표시됩니다.</div>
     </div>
   </div>
+
   <div id="reset-confirm-overlay" class="confirm-overlay" aria-hidden="true">
-    <div
-      class="confirm-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="reset-confirm-title"
-      aria-describedby="reset-confirm-description"
-    >
+    <div class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="reset-confirm-title">
       <h2 id="reset-confirm-title">진행상황 초기화</h2>
       <p id="reset-confirm-description">진행상황을 초기화 하시겠습니까?</p>
       <div class="confirm-actions">
@@ -55,18 +51,13 @@
       </div>
     </div>
   </div>
+
   <div id="rebirth-confirm-overlay" class="confirm-overlay" aria-hidden="true">
-    <div
-      class="confirm-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="rebirth-confirm-title"
-      aria-describedby="rebirth-confirm-description"
-    >
+    <div class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="rebirth-confirm-title">
       <h2 id="rebirth-confirm-title">블랙홀 환생 확인</h2>
       <p id="rebirth-confirm-description">
         레벨/XP/보유 카드가 초기화됩니다.<br />
-        <strong>현재 카드 저장소에 있는 카드를 제외하고 모든 카드가 삭제됩니다.</strong><br />
+        <strong class="rebirth-card-warning">현재 카드 저장소에 있는 카드를 제외하고 모든 카드가 삭제됩니다.</strong><br />
         환생 시 Dark Matter를 획득합니다.
       </p>
       <div class="confirm-actions">
@@ -75,6 +66,7 @@
       </div>
     </div>
   </div>
+
   <main class="app">
     <header class="hud">
       <button
@@ -104,8 +96,7 @@
         Dark Matter:
         <strong id="dark-matter-count">0</strong>
       </p>
-      <p class="rate">초당 생산량: <span id="per-second">0</span></p>
-      <p class="rate">클릭 효율: <span id="click-power">10</span></p>
+      <p class="rate">클릭 효율: <span id="click-power">1</span></p>
       <p class="event-rate" id="fever-status">피버 타임 비활성</p>
       <button id="rebirth-button" class="rebirth-button" disabled>
         블랙홀 개방 (환생)
@@ -143,35 +134,44 @@
         <span class="corner-icon">📊</span>
         <span class="corner-label">스탯</span>
       </button>
-      <p class="rebirth-hint">조건: Stardust 100,000 이상</p>
+      <p class="rebirth-hint" id="rebirth-hint">조건: Stardust 10M 이상</p>
     </header>
 
     <section id="stat-panel" class="shop stat-window floating-panel">
-      <h2>현재 전투 스탯</h2>
+      <h2>전투 스탯</h2>
       <div class="stat-grid">
-        <p>크리티컬 확률: <strong id="stat-critical-chance">5%</strong></p>
-        <p>크리티컬 배율: <strong id="stat-critical-multiplier">x2</strong></p>
-        <p>피버 충전 진행도: <strong id="stat-meteor-chance">100회 (0%)</strong></p>
-        <p>피버 지속 시간: <strong id="stat-fever-duration">10초</strong></p>
-        <p>초당 생산량 배수: <strong id="stat-per-second-multiplier">x1</strong></p>
-        <p>클릭 효율 배수: <strong id="stat-click-multiplier">x1</strong></p>
-        <p>카드 클릭 배율: <strong id="stat-card-click-multiplier">x1</strong></p>
-        <p>카드 자동 생산 배율: <strong id="stat-card-auto-multiplier">x1</strong></p>
-        <p>클릭 XP 획득량: <strong id="stat-xp-gain">10</strong></p>
-        <p>클릭 XP 배율: <strong id="stat-xp-multiplier">x1</strong></p>
+        <p>크리 확률: <strong id="stat-critical-chance">5%</strong></p>
+        <p>크리 배율: <strong id="stat-critical-multiplier">x2</strong></p>
+        <p>피버 충전: <strong id="stat-meteor-chance">100회</strong></p>
+        <p>피버 시간: <strong id="stat-fever-duration">10초</strong></p>
+        <p>클릭 배수: <strong id="stat-click-multiplier">x1</strong></p>
+        <p>카드 배율: <strong id="stat-card-click-multiplier">x1</strong></p>
+        <p>클릭 XP: <strong id="stat-xp-gain">10</strong></p>
+        <p>XP 배율: <strong id="stat-xp-multiplier">x1</strong></p>
       </div>
     </section>
 
     <section id="codex-panel" class="shop codex-panel floating-panel">
       <h2>레벨업 카드 도감</h2>
+      <div class="growth-light-guide">
+        <button id="growth-light-help-toggle" class="growth-light-help-btn" type="button" aria-expanded="false" aria-controls="growth-light-help-text">?</button>
+        <p id="growth-light-help-text" class="growth-light-help-text hidden" role="note">
+          ✨ <strong>성장의 빛</strong>: 최대 <span class="rarity-label epic">영웅</span> 등급까지 한 단계 진화 (전설·신화 불가)
+        </p>
+      </div>
       <div id="codex-list" class="codex-list"></div>
     </section>
 
     <section id="inventory-panel" class="shop inventory-panel floating-panel">
       <h2>우주 개척 도감</h2>
       <section class="preservation-section">
-        <h3 id="preservation-title">우주 보존 저장소 (환생 보존 1슬롯)</h3>
-        <p class="preservation-help">보유 카드 클릭으로 지정/해제. 블랙홀 환생 후에도 지정 카드만 유지됩니다.</p>
+        <div class="preservation-header">
+          <h3 id="preservation-title">우주 보존 저장소</h3>
+          <button id="growth-light-help-inventory" class="growth-light-help-btn" type="button" aria-expanded="false" aria-controls="growth-light-help-inventory-text" title="성장의 빛">?</button>
+        </div>
+        <p id="growth-light-help-inventory-text" class="growth-light-help-text hidden" role="note">
+          ✨ <strong>성장의 빛</strong>: 최대 <span class="rarity-label epic">영웅</span> 등급까지 한 단계 진화 (전설·신화 불가)
+        </p>
         <div id="preservation-slots" class="preservation-slots"></div>
       </section>
 
@@ -187,11 +187,14 @@
       </div>
 
       <div id="inventory-merge-view" class="inventory-tab-view hidden">
-        <p class="merge-help">동일 종류 + 동일 등급 카드만 합성 가능합니다. 등급 색상: <span class="rarity-label common">일반</span> <span class="rarity-label rare">희귀</span> <span class="rarity-label epic">영웅</span> <span class="rarity-label legendary">전설</span> <span class="rarity-label mythic">신화</span></p>
         <button id="bulk-merge-button" class="buy-button" type="button">일괄 합성</button>
         <div id="merge-list" class="merge-list"></div>
         <div id="evolution-log" class="merge-list"></div>
       </div>
+    </section>
+
+    <section class="activity-section">
+      <div id="activity-log" class="activity-log" aria-live="polite"></div>
     </section>
 
     <section class="planet-section">
@@ -202,60 +205,47 @@
     </section>
 
     <section class="shop">
-      <h2>Shop</h2>
+      <h2>일반 강화 상점</h2>
       <div id="bulk-upgrade-controls" class="inventory-tabs">
         <button class="inventory-tab active" type="button" data-bulk="1" aria-pressed="true">+1</button>
         <button class="inventory-tab" type="button" data-bulk="5" aria-pressed="false">+5</button>
         <button class="inventory-tab" type="button" data-bulk="10" aria-pressed="false">+10</button>
-        <button class="inventory-tab" type="button" data-bulk="max" aria-pressed="false">최대</button>
+        <button class="inventory-tab" type="button" data-bulk="max" aria-pressed="false">MAX</button>
       </div>
       <div class="shop-list">
         <article class="shop-item">
           <div>
-            <h3 id="auto-miner-title">자동 생산 강화 | Lv.0</h3>
-            <p>초당 생산량 +1 증가</p>
-            <p class="cost">가격: <span id="auto-miner-cost">20</span></p>
-            <p class="cost" id="auto-miner-bulk-cost">+5 비용 0 | +10 비용 0 | 최대 비용 0 (0강)</p>
-          </div>
-          <button id="buy-auto-miner" class="buy-button">구매</button>
-        </article>
-
-        <article class="shop-item">
-          <div>
             <h3 id="click-upgrade-title">클릭 강화 | Lv.0</h3>
-            <p>클릭 당 스타더스트 +2 증가</p>
+            <p>클릭 고정 +2</p>
             <p class="cost">가격: <span id="click-upgrade-cost">30</span></p>
-            <p class="cost" id="click-upgrade-bulk-cost">+5 비용 0 | +10 비용 0 | 최대 비용 0 (0강)</p>
+            <p class="cost" id="click-upgrade-bulk-cost"></p>
           </div>
           <button id="buy-click-upgrade" class="buy-button">구매</button>
         </article>
-
         <article class="shop-item">
           <div>
-            <h3 id="xp-drive-title">XP 부스터 강화 | Lv.0</h3>
-            <p>클릭 XP 기본값 +10 증가</p>
+            <h3 id="xp-drive-title">XP 부스터 | Lv.0</h3>
+            <p>클릭 XP +10</p>
             <p class="cost">가격: <span id="xp-drive-cost">45</span></p>
-            <p class="cost" id="xp-drive-bulk-cost">+5 비용 0 | +10 비용 0 | 최대 비용 0 (0강)</p>
+            <p class="cost" id="xp-drive-bulk-cost"></p>
           </div>
           <button id="buy-xp-drive" class="buy-button">구매</button>
         </article>
-
         <article class="shop-item">
           <div>
-            <h3>안테나 주파수 동기화</h3>
-            <p>기본 크리티컬 확률 +0.5% (최대 50%)</p>
-            <p class="cost">가격: <span id="critical-chance-shop-cost">2,000</span> | 보유: <span id="critical-chance-shop-level">0</span></p>
-            <p class="cost" id="critical-chance-bulk-cost">+5 비용 0 | +10 비용 0 | 최대 비용 0 (0강)</p>
+            <h3>크리 확률</h3>
+            <p>+0.5% (최대 50%)</p>
+            <p class="cost">가격: <span id="critical-chance-shop-cost">2000</span> | Lv.<span id="critical-chance-shop-level">0</span></p>
+            <p class="cost" id="critical-chance-bulk-cost"></p>
           </div>
           <button id="buy-critical-chance-shop" class="buy-button">강화</button>
         </article>
-
         <article class="shop-item">
           <div>
-            <h3>초고밀도 레이저 포인터</h3>
-            <p>기본 크리티컬 배수 +10% (상한 없음)</p>
-            <p class="cost">가격: <span id="critical-multiplier-shop-cost">3,000</span> | 보유: <span id="critical-multiplier-shop-level">0</span></p>
-            <p class="cost" id="critical-multiplier-bulk-cost">+5 비용 0 | +10 비용 0 | 최대 비용 0 (0강)</p>
+            <h3>크리 배율</h3>
+            <p>기본 배수 +10%</p>
+            <p class="cost">가격: <span id="critical-multiplier-shop-cost">3000</span> | Lv.<span id="critical-multiplier-shop-level">0</span></p>
+            <p class="cost" id="critical-multiplier-bulk-cost"></p>
           </div>
           <button id="buy-critical-multiplier-shop" class="buy-button">강화</button>
         </article>
@@ -263,23 +253,12 @@
     </section>
 
     <section id="dark-matter-lab" class="shop dm-shop floating-panel">
-      <h2>암흑 물질 연구소 (Dark Matter Shop)</h2>
+      <h2>암흑 물질 연구소</h2>
       <div class="shop-list">
         <article class="shop-item">
           <div>
-            <h3>시공간 왜곡</h3>
-            <p>영구적으로 클릭/초당 획득량 +50%</p>
-            <p class="cost">
-              가격: <span id="distortion-cost">1</span> DM | 보유: <span id="distortion-level">0</span>
-            </p>
-          </div>
-          <button id="buy-distortion" class="buy-button">연구</button>
-        </article>
-
-        <article class="shop-item">
-          <div>
             <h3>특이점 압축</h3>
-            <p>환생 시 획득 Dark Matter +50%</p>
+            <p>환생 DM +50%</p>
             <p class="cost">
               가격: <span id="singularity-cost">3</span> DM | 보유: <span id="singularity-level">0</span>
             </p>
@@ -288,8 +267,8 @@
         </article>
         <article class="shop-item">
           <div>
-            <h3>보존 슬롯 확장</h3>
-            <p>우주 보존 저장소 슬롯 +1 (최대 10회 확장)</p>
+            <h3>보존 슬롯</h3>
+            <p>슬롯 +1 (최대 10)</p>
             <p class="cost">
               가격: <span id="preservation-slot-upgrade-cost">10</span> DM | 보유: <span id="preservation-slot-upgrade-level">0</span>/10
             </p>
@@ -298,8 +277,8 @@
         </article>
         <article class="shop-item">
           <div>
-            <h3>웜홀 가속 엔진</h3>
-            <p>기본 자동 생산 효율 영구 +15% (복리)</p>
+            <h3>웜홀 엔진</h3>
+            <p>클릭 곱배율 +15%</p>
             <p class="cost">
               가격: <span id="wormhole-engine-cost">5</span> DM | 보유: <span id="wormhole-engine-level">0</span>
             </p>
@@ -308,8 +287,8 @@
         </article>
         <article class="shop-item">
           <div>
-            <h3>스타더스트 중력 장치</h3>
-            <p>최종 스타더스트 획득량 영구 +10% (복리)</p>
+            <h3>중력 장치</h3>
+            <p>클릭 곱배율 +10%</p>
             <p class="cost">
               가격: <span id="stardust-gravity-cost">7</span> DM | 보유: <span id="stardust-gravity-level">0</span>
             </p>
@@ -319,7 +298,7 @@
         <article class="shop-item">
           <div>
             <h3>피버 하이웨이</h3>
-            <p>피버 지속 +1초, 피버 중 모든 획득량 +20%</p>
+            <p>피버 +1초, 획득 +20%</p>
             <p class="cost">
               가격: <span id="fever-highway-cost">9</span> DM | 보유: <span id="fever-highway-level">0</span>
             </p>
@@ -330,23 +309,23 @@
     </section>
 
     <section id="achievement-panel" class="shop achievement-shop floating-panel">
-      <h2>우주 업적 (Achievements)</h2>
+      <h2>우주 업적</h2>
       <div class="achievement-list">
         <article id="achievement-cosmic-pioneer" class="achievement-item">
           <h3>우주 개척자</h3>
-          <p>클릭 100회 달성</p>
+          <p>클릭 100회</p>
         </article>
         <article id="achievement-stardust-tycoon" class="achievement-item">
           <h3>스타더스트 재벌</h3>
-          <p>Stardust 1,000,000개 보유</p>
+          <p>1,000,000 보유</p>
         </article>
         <article id="achievement-satellite-collector" class="achievement-item">
           <h3>위성 컬렉터</h3>
-          <p>자동 채굴기 10개 이상 구매</p>
+          <p>클릭 강화 10Lv</p>
         </article>
         <article id="achievement-lucky-astronomer" class="achievement-item">
           <h3>행운의 천문학자</h3>
-          <p>피버 타임 5회 발동</p>
+          <p>피버 5회</p>
         </article>
       </div>
     </section>

@@ -783,6 +783,108 @@ body.levelup-open .levelup-overlay {
   font-size: 0.92rem;
 }
 
+.rebirth-card-warning {
+  color: #ff5f86;
+  font-weight: 800;
+}
+
+.activity-section {
+  margin: 0;
+}
+
+.activity-log {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(117, 161, 227, 0.35);
+  background: rgba(8, 12, 28, 0.88);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: #b8ccef;
+  max-height: 120px;
+  overflow: hidden auto;
+}
+
+.activity-log .log-line {
+  margin: 0 0 4px;
+}
+
+.activity-log .log-line.crit {
+  color: #ffd978;
+}
+
+.activity-log .log-empty {
+  margin: 0;
+  color: #7f93b8;
+  text-align: center;
+}
+
+.growth-light-guide {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.preservation-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.preservation-header h3 {
+  margin: 0;
+}
+
+.growth-light-help-btn {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid rgba(163, 53, 238, 0.75);
+  background: rgba(26, 12, 40, 0.92);
+  color: #e8c8ff;
+  font-weight: 800;
+  font-size: 0.9rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+
+.growth-light-help-btn[aria-expanded="true"] {
+  background: rgba(163, 53, 238, 0.35);
+  box-shadow: 0 0 10px rgba(163, 53, 238, 0.45);
+}
+
+.growth-light-help-text {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(163, 53, 238, 0.4);
+  background: rgba(20, 10, 32, 0.88);
+  color: #e6d4ff;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.growth-light-help-text.hidden {
+  display: none;
+}
+
+.preservation-slot .empty-slot-check {
+  display: block;
+  font-size: 1.35rem;
+  color: #6dffb0;
+  text-shadow: 0 0 10px rgba(109, 255, 176, 0.55);
+  margin: 2px 0;
+}
+
+.evolution-log-entry {
+  font-weight: 600;
+}
+
+
 .planet-section {
   display: flex;
   justify-content: center;
@@ -1269,6 +1371,16 @@ body.levelup-open .levelup-overlay {
 
 .preservation-slot.filled {
   border-style: solid;
+  cursor: pointer;
+}
+
+.preservation-slot.filled:hover {
+  filter: brightness(1.08);
+}
+
+.preservation-slot.empty {
+  border-color: rgba(109, 255, 176, 0.45);
+  background: rgba(8, 22, 18, 0.88);
 }
 
 .preservation-slot.filled.common {
