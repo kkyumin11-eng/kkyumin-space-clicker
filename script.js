@@ -11,14 +11,13 @@ const BASE_CRITICAL_CHANCE = 0.05;
 const MAX_BASE_CRITICAL_CHANCE = 0.5;
 const BASE_CRITICAL_MULTIPLIER = 2;
 const REBIRTH_THRESHOLD = 10_000_000;
-const STARDUST_LOG_SCALE = 10;
 const DARK_MATTER_FORMAT_THRESHOLD = 10000;
 const BASE_CLICK_XP = 10;
 const LEVELUP_CARD_LOCK_MS = 1200;
 const GROWTH_LIGHT_MAX_TARGET_RARITY = "epic";
 const AUDIO_PREF_KEY = "stardust-clicker-muted";
-const MUSIC_PLAYLIST_MODE = "random";
-const MUSIC_STEPS_PER_TRACK = 32;
+const MUSIC_PLAYLIST_MODE = "sequential";
+const MUSIC_STEPS_PER_TRACK = 64;
 const BASE_PRESERVATION_SLOTS = 1;
 const MAX_PRESERVATION_SLOT_UPGRADES = 10;
 const MAX_EVOLUTION_LOGS = 14;
@@ -62,62 +61,62 @@ const FORMAT_NUMBER_UNITS = buildFormatNumberUnits();
 const MUSIC_PLAYLISTS = {
   normal: [
     {
-      id: "nebula-drift",
-      chordMap: [196, 220, 247, 220, 196, 247, 220, 196],
-      tempo: 86,
-      bassType: "triangle",
-      leadMultiplier: 1.98
-    },
-    {
-      id: "orbit-lullaby",
-      chordMap: [174, 196, 220, 196, 174, 220, 196, 174],
-      tempo: 78,
-      bassType: "triangle",
-      leadMultiplier: 1.92
-    },
-    {
-      id: "stardust-echo",
-      chordMap: [220, 247, 262, 247, 220, 262, 247, 220],
-      tempo: 92,
-      bassType: "sine",
-      leadMultiplier: 2.02
+      id: "lunar-echo",
+      chordMap: [196, 220, 247, 262, 294, 262, 247, 220, 196, 175, 196, 220, 247, 294, 330, 294],
+      leadPattern: [2, 2.5, 3, 2.5, 2, 1.5, 2, 2.5, 2, 1.5, 2, 2.5, 3, 2.5, 2, 1.5],
+      tempo: 74,
+      bassType: "triangle"
     },
     {
       id: "void-harmony",
-      chordMap: [165, 196, 220, 196, 165, 220, 196, 165],
-      tempo: 82,
-      bassType: "triangle",
-      leadMultiplier: 1.95
+      chordMap: [165, 196, 220, 247, 220, 196, 165, 147, 165, 196, 220, 262, 247, 220, 196, 165],
+      leadPattern: [2, 1.5, 2, 2.5, 2, 1.5, 2, 1, 2, 1.5, 2, 2.5, 3, 2.5, 2, 1.5],
+      tempo: 68,
+      bassType: "triangle"
+    },
+    {
+      id: "nebula-drift",
+      chordMap: [220, 247, 262, 294, 262, 247, 220, 196, 220, 247, 294, 330, 294, 262, 247, 220],
+      leadPattern: [2, 2.5, 2, 1.5, 2, 2.5, 3, 2.5, 2, 2.5, 2, 1.5, 2, 2.5, 2, 1.5],
+      tempo: 80,
+      bassType: "sine"
+    },
+    {
+      id: "stardust-echo",
+      chordMap: [174, 196, 220, 247, 262, 247, 220, 196, 174, 196, 220, 247, 262, 294, 262, 247],
+      leadPattern: [2, 1.5, 2, 2.5, 3, 2.5, 2, 1.5, 2, 1.5, 2, 2.5, 2, 1.5, 2, 2.5],
+      tempo: 76,
+      bassType: "sine"
     }
   ],
   fever: [
     {
       id: "supernova-rush",
-      chordMap: [220, 262, 294, 262, 220, 330, 294, 262],
-      tempo: 124,
-      bassType: "sawtooth",
-      leadMultiplier: 2.05
+      chordMap: [220, 262, 294, 330, 349, 330, 294, 262, 220, 247, 294, 349, 392, 349, 294, 262],
+      leadPattern: [2, 2.5, 3, 2.5, 2, 2.5, 3, 2.5, 2, 2.5, 3, 3.5, 3, 2.5, 2, 2.5],
+      tempo: 118,
+      bassType: "sawtooth"
     },
     {
       id: "plasma-surge",
-      chordMap: [247, 294, 330, 294, 247, 349, 330, 294],
-      tempo: 132,
-      bassType: "sawtooth",
-      leadMultiplier: 2.08
+      chordMap: [247, 294, 330, 349, 392, 349, 330, 294, 247, 294, 349, 392, 440, 392, 349, 294],
+      leadPattern: [2, 2.5, 3, 2.5, 2, 2.5, 3, 2.5, 2, 2.5, 3, 3.5, 3, 2.5, 2, 2.5],
+      tempo: 124,
+      bassType: "sawtooth"
     },
     {
       id: "cosmic-overdrive",
-      chordMap: [196, 247, 294, 247, 196, 311, 294, 247],
-      tempo: 128,
-      bassType: "square",
-      leadMultiplier: 2.1
+      chordMap: [196, 247, 294, 349, 392, 349, 294, 247, 196, 247, 294, 349, 392, 440, 392, 349],
+      leadPattern: [2, 2.5, 2, 2.5, 3, 2.5, 2, 2.5, 2, 2.5, 3, 3.5, 3, 2.5, 2, 2.5],
+      tempo: 120,
+      bassType: "square"
     },
     {
       id: "fever-prism",
-      chordMap: [262, 311, 349, 311, 262, 392, 349, 311],
-      tempo: 136,
-      bassType: "sawtooth",
-      leadMultiplier: 2.12
+      chordMap: [262, 311, 349, 392, 440, 392, 349, 311, 262, 311, 349, 392, 440, 494, 440, 392],
+      leadPattern: [2, 2.5, 3, 2.5, 2, 2.5, 3, 2.5, 2, 2.5, 3, 3.5, 3, 2.5, 2, 2.5],
+      tempo: 128,
+      bassType: "sawtooth"
     }
   ]
 };
@@ -126,7 +125,7 @@ const ACHIEVEMENTS = [
   { id: "cosmicPioneer", name: "우주 개척자" },
   { id: "stardustTycoon", name: "스타더스트 재벌" },
   { id: "satelliteCollector", name: "위성 컬렉터" },
-  { id: "luckyAstronomer", name: "행운의 천문학자" }
+  { id: "luckyAstronomer", name: "황금 유성 추적자" }
 ];
 
 const RARITIES = [
@@ -317,11 +316,11 @@ const elements = {
   planetButton: document.getElementById("planet-button"),
   planetSection: document.querySelector(".planet-section"),
   satelliteLayer: document.getElementById("satellite-layer"),
-  clickUpgradeTitle: document.getElementById("click-upgrade-title"),
   clickUpgradeCost: document.getElementById("click-upgrade-cost"),
+  clickUpgradeLevel: document.getElementById("click-upgrade-level"),
   clickUpgradeBulkCost: document.getElementById("click-upgrade-bulk-cost"),
-  xpDriveTitle: document.getElementById("xp-drive-title"),
   xpDriveCost: document.getElementById("xp-drive-cost"),
+  xpDriveLevel: document.getElementById("xp-drive-level"),
   xpDriveBulkCost: document.getElementById("xp-drive-bulk-cost"),
   buyClickUpgrade: document.getElementById("buy-click-upgrade"),
   buyXpDrive: document.getElementById("buy-xp-drive"),
@@ -741,33 +740,53 @@ function scheduleBgmStep(stepTime, feverMode) {
     return;
   }
   const chordMap = track.chordMap;
-  const bassRoot = chordMap[audioState.step % chordMap.length];
+  const stepIndex = audioState.step % chordMap.length;
+  const bassRoot = chordMap[stepIndex];
+  const leadPattern = track.leadPattern || [2, 2.5, 2, 1.5];
+  const leadRatio = leadPattern[stepIndex % leadPattern.length];
   const feverLayer = feverMode;
+  const isAccentStep = stepIndex % 4 === 0;
 
   const bassOsc = context.createOscillator();
   const bassGain = context.createGain();
   bassOsc.type = track.bassType;
   bassOsc.frequency.setValueAtTime(bassRoot / 2, stepTime);
   bassGain.gain.setValueAtTime(0.0001, stepTime);
-  bassGain.gain.exponentialRampToValueAtTime(feverLayer ? 0.05 : 0.035, stepTime + 0.03);
-  bassGain.gain.exponentialRampToValueAtTime(0.0001, stepTime + 0.36);
+  bassGain.gain.exponentialRampToValueAtTime(feverLayer ? 0.048 : isAccentStep ? 0.04 : 0.032, stepTime + 0.03);
+  bassGain.gain.exponentialRampToValueAtTime(0.0001, stepTime + 0.42);
   bassOsc.connect(bassGain);
   bassGain.connect(audioState.bgmGain);
   bassOsc.start(stepTime);
-  bassOsc.stop(stepTime + 0.38);
+  bassOsc.stop(stepTime + 0.44);
 
-  const leadFreq = bassRoot * track.leadMultiplier;
-  const leadOsc = context.createOscillator();
-  const leadGain = context.createGain();
-  leadOsc.type = "sine";
-  leadOsc.frequency.setValueAtTime(leadFreq, stepTime);
-  leadGain.gain.setValueAtTime(0.0001, stepTime);
-  leadGain.gain.exponentialRampToValueAtTime(feverLayer ? 0.03 : 0.02, stepTime + 0.02);
-  leadGain.gain.exponentialRampToValueAtTime(0.0001, stepTime + 0.2);
-  leadOsc.connect(leadGain);
-  leadGain.connect(audioState.bgmGain);
-  leadOsc.start(stepTime);
-  leadOsc.stop(stepTime + 0.21);
+  if (stepIndex % 2 === 1 || feverLayer) {
+    const leadFreq = (bassRoot / 2) * leadRatio;
+    const leadOsc = context.createOscillator();
+    const leadGain = context.createGain();
+    leadOsc.type = feverLayer ? "triangle" : "sine";
+    leadOsc.frequency.setValueAtTime(leadFreq, stepTime);
+    leadGain.gain.setValueAtTime(0.0001, stepTime);
+    leadGain.gain.exponentialRampToValueAtTime(feverLayer ? 0.028 : 0.018, stepTime + 0.02);
+    leadGain.gain.exponentialRampToValueAtTime(0.0001, stepTime + 0.24);
+    leadOsc.connect(leadGain);
+    leadGain.connect(audioState.bgmGain);
+    leadOsc.start(stepTime);
+    leadOsc.stop(stepTime + 0.26);
+  }
+
+  if (isAccentStep) {
+    const padOsc = context.createOscillator();
+    const padGain = context.createGain();
+    padOsc.type = "sine";
+    padOsc.frequency.setValueAtTime(bassRoot, stepTime);
+    padGain.gain.setValueAtTime(0.0001, stepTime);
+    padGain.gain.exponentialRampToValueAtTime(feverLayer ? 0.014 : 0.01, stepTime + 0.08);
+    padGain.gain.exponentialRampToValueAtTime(0.0001, stepTime + 0.55);
+    padOsc.connect(padGain);
+    padGain.connect(audioState.bgmGain);
+    padOsc.start(stepTime);
+    padOsc.stop(stepTime + 0.57);
+  }
 
   audioState.stepsInCurrentTrack += 1;
 }
@@ -790,7 +809,7 @@ function startBgmScheduler() {
     while (audioState.nextNoteTime < context.currentTime + 0.18) {
       scheduleBgmStep(audioState.nextNoteTime, feverMode);
       audioState.nextNoteTime += stepDuration;
-      audioState.step = (audioState.step + 1) % 64;
+      audioState.step = (audioState.step + 1) % (track?.chordMap?.length ?? 16);
     }
   }, 90);
 }
@@ -1395,14 +1414,6 @@ function getRawClickMultiplier(customBuffs = state.cardBuffs) {
   );
 }
 
-function compressStardustFromMultiplier(rawMultiplier) {
-  const numeric = Math.max(0, Number(rawMultiplier) || 0);
-  if (numeric <= 1) {
-    return 0;
-  }
-  return Math.floor(Math.log10(numeric + 1) * STARDUST_LOG_SCALE);
-}
-
 function buildStatSnapshot(customBuffs = state.cardBuffs) {
   const flat = getClickFlatBonus();
   const rawMult =
@@ -1411,7 +1422,7 @@ function buildStatSnapshot(customBuffs = state.cardBuffs) {
     getWormholeClickMultiplier() *
     getStardustGravityMultiplier();
   return {
-    clickGain: compressStardustFromMultiplier(rawMult) + flat,
+    clickGain: flat * rawMult,
     criticalChance: getCriticalChanceWithBuffs(customBuffs)
   };
 }
@@ -1563,7 +1574,7 @@ function getFeverMultiplier() {
 function getClickGain(extraDamageMultiplier = 1) {
   const flat = getClickFlatBonus();
   const rawMult = getRawClickMultiplier() * Math.max(1, Number(extraDamageMultiplier) || 1);
-  return compressStardustFromMultiplier(rawMult) + flat;
+  return flat * rawMult;
 }
 
 function getBurstGainFromClicks(clickCount) {
@@ -2260,10 +2271,14 @@ function updateView() {
     elements.rebirthHint.textContent = `조건: Stardust ${formatNumber(REBIRTH_THRESHOLD, 0)} 이상`;
   }
 
-  elements.clickUpgradeTitle.textContent = `클릭 강화 | Lv.${formatNumber(state.clickUpgrade.level, 0)}`;
   elements.clickUpgradeCost.textContent = formatNumber(state.clickUpgrade.price, 0);
-  elements.xpDriveTitle.textContent = `XP 부스터 강화 | Lv.${formatNumber(state.xpDrive.level, 0)}`;
+  if (elements.clickUpgradeLevel) {
+    elements.clickUpgradeLevel.textContent = formatNumber(state.clickUpgrade.level, 0);
+  }
   elements.xpDriveCost.textContent = formatNumber(state.xpDrive.price, 0);
+  if (elements.xpDriveLevel) {
+    elements.xpDriveLevel.textContent = formatNumber(state.xpDrive.level, 0);
+  }
   const clickPlus5 = getUpgradeTotalCost(
     GENERAL_UPGRADE_COST.clickUpgrade.base,
     GENERAL_UPGRADE_COST.clickUpgrade.growth,
